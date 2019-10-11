@@ -15,13 +15,10 @@ typedef struct process_control_block {
     int id;
     pid_t process_id;
     int priority;
-    int isScheduled;
-    int isBlocked;
-    int burstTime;
-    int resumeTime;
-    int duration;
-    int progress;
-    int waitTime;
+    int is_scheduled;
+    int burst_time;
+    int duration;//CPU time
+    int wait_time;
 
 } pcb;
 
@@ -32,8 +29,8 @@ typedef struct user_process {
     int priority;
     int duration;
     int progress;
-    int burstTime;
-    int waitTime;
+    int burst_time;
+    int wait_time;
 
 } us_p;
 
