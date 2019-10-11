@@ -59,7 +59,7 @@ int clock_point;
 int pcb_shmid;
 pid_t parent_pid;
 pid_t child_id;
-pid_t child_arr[18];
+int bit_vector[18];
 static bool quit;
 char *shmMsg;
 
@@ -108,7 +108,7 @@ int main(int argc, char **argv){
 	fptr = fopen(file_name, "w");
 	// Validate if file opened correctly
 	if(fptr == NULL){
-		fprintf(stderr, "Failed to open the file, terminating program\n");
+		fprintf(stderr, "ERROR: Failed to open the file, terminating program\n");
 		return 1;
 	}
 	setvbuf(fptr, NULL, _IONBF, 0);
@@ -144,13 +144,13 @@ int main(int argc, char **argv){
 
 	int i;
     for(i=0; i<18; i++){	//Initialize array to zero's
-			child_arr[i] = 0;
+			bit_vector[i] = 0;
 	}
 
 	msg_queue_id = msgget(msg_queue_key, IPC_CREAT | 0644 );
 
 	if ((clock_shmid = shmget(clock_key, sizeof(simulated_clock), IPC_CREAT | 0644)) < 0) {
-        fprintf(stderr, "shmat failed on shared message");
+        fprintf(stderr, "ERROR: shmat failed on shared message");
 		return 1;
     }
 
@@ -174,24 +174,28 @@ int main(int argc, char **argv){
 	med_queue = queue_generator(18);
 	low_queue = queue_generator(18);
 
-	int counter = 0;
+	//int counter = 0;
 	int spawn = 0;
 	int prev_clock = 0;
 	int queue_lvl = -1;
-	for(i = 0; i < 18; i++) {
-        if(counter <= 18) {
+	i = 0;
+	int start_ns = 0;
+	while(!quit) {
+		if((i%17) == 0){
+			i = 0;
+		}
+        if(bit_vector[i] == 0) {
             spawning = random_numb_gen(0, 2);
             if((clock_point->sec - prev_clock) >= spawning) {
                 child_id = fork();
-
+				bit_vector[i] = 1;
                 if(child_id == 0) {
                     us_p user_process = _init_user_process(i, getpid());
 
-                    pcb[i] = copy_user_to_pcb(pcb[i], userProcess, i);
+                    pcb[i] = copy_user_to_pcb(pcb[i], user_process, i);
 
-				//	queue_lvl = queue_lvl_find(pcb[i].priority);
 
-                    fprintf(stderr, "\nOSS: Generating process with PID %d and putting it in queue %d at time %d.%d\n", pcb[i].actualPid, pcb[i].priority, clock_point->sec, clock_point->ns);
+                    fprintf(stderr, "\nOSS: Generating process with PID %d and putting it in queue %d at time %d.%d\n", pcb[i].process_id, pcb[i].priority, clock_point->sec, clock_point->ns);
 
                     if(pcb[i].priority == 0) {
 						if(high_queue->size < high_queue->max_kids){
@@ -204,7 +208,7 @@ int main(int argc, char **argv){
 					} 
 					else if(pcb.priority[i] == 1) {
 						if(med_queue->size < med_queue->max_kids){
-							pushToQueue(low_queue, pcb[i]);
+							push_to_queue(low_queue, pcb[i]);
 						} 
 						else 
 						{
@@ -213,7 +217,7 @@ int main(int argc, char **argv){
 					}
 					else{
 						if(low_queue->size < low_queue->max_kids){
-							pushToQueue(low_queue, pcb[i]);
+							push_to_queue(low_queue, pcb[i]);
 						} 
 						else 
 						{
@@ -225,16 +229,17 @@ int main(int argc, char **argv){
 
                 } 
 				else if (childPid < 0) {
-                    perror("[-]ERROR: Failed to fork CHILD process.\n");
+                    perror("ERROR: Fork() failed\n");
                     exit(errno);
                 }
             }
 
-            counter++;
+            //counter++;
 
             prev_clock = clock_point->sec;
 
-            fprintf(stderr, "OSS: Dispatching process with PID %d from queue %d at time %d:%d", pcb[i].process_id, pcb[i].priority, clock_point->sec, clock_point->ns);
+			total_ns = clock_point->ns - start_ns;
+            fprintf(stderr, "OSS: total time this dispatch was %d nanoseconds", total_ns);
 
             //advanceSharedMemoryClock();
 			sem_clock_lock();
@@ -278,41 +283,28 @@ us_p _init_user_process(int index, pid_t child_id){
 	user_process->process_id = child_id;
 	user_process->priority = 0;
 
-	int randNum = randomNumberGenerator(3, 0);
-   if(randNum == 0) {
+	int random_number = random_numb_gen(0, 3);
+   if(random_number == 0) {
        user_process->duration = 0;
-       user_process->waitTime = 0;
+       user_process->wait_time = 0;
 
    } else if(randNum == 1) {
        user_process->duration = 50000;
-       user_process->waitTime = 0;
+       user_process->wait_time = 0;
 
-   } else if(randNum == 2) {
+   } else if(random_number == 2) {
        int seconds = random_numb_gen(0, 4);
-       int millis = random_numb_gen(0, 999) * 1000000;
-       int total_nanos = seconds * 1000000000 + millis;
+       int milli_sec = random_numb_gen(0, 999) * 1000000;
+       int total_nanos = seconds * 1000000000 + milli_sec;
 		
-      // int totalNanos = 0;
-      // if((millis % 1000) == 0) {
-      //     totalNanos = millis * 100000000;
 
-      // } else if((millis % 100) == 0) {
-      //     totalNanos = millis * 10000000;
-
-      // } else if((millis % 10) == 0) {
-      //     totalNanos = millis * 1000000;
-
-     //  } else if((millis % 1) == 0) {
-      //     totalNanos = millis * 100000;
-     //  }
-
-       user_process->waitTime = millis + total_nanos;
+       user_process->wait_time = milli_sec + total_nanos;
        user_process->duration = 50000;
 
-   } else if(randNum == 3) {
+   } else if(random_number == 3) {
        double p_value = random_numb_gen(1, 99) / 100;
-       user_process->duration = user_process->burstTime - (p_value * user_process->burstTime);
-       user_process->waitTime = 0;
+       user_process->duration = user_process->burst_time - (p_value * user_process->burst_time);
+       user_process->wait_time = 0;
    }
 
     return *user_process;
@@ -323,9 +315,9 @@ pcb copy_user_to_pcb(pcb pcb, us_p user_process, int id){
 	pcb.id = id;
     pcb.process_id = user_process.process_id;
 	pcb.priority = user_process.priority;
-	pcb.burstTime = user_process.burstTime;
+	pcb.burstTime = user_process.burst_time;
     pcb.duration = user_process.duration;	
-	pcb.waitTime = user_process.waitTime;
+	pcb.waitTime = user_process.wait_time;
 
     return pcb;
 }
