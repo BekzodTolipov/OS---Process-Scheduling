@@ -4,13 +4,16 @@
 #include <stdlib.h>
 
 typedef struct Clock {
-    unsigned int seconds;
-    unsigned int nanoSeconds;
+
+    unsigned int sec;
+    unsigned int ns;
+
 } simulated_clock;
 
 typedef struct process_control_block {
-    int pidIndex;
-    pid_t actualPid;
+
+    int id;
+    pid_t process_id;
     int priority;
     int isScheduled;
     int isBlocked;
@@ -19,24 +22,29 @@ typedef struct process_control_block {
     int duration;
     int progress;
     int waitTime;
+
 } pcb;
 
 typedef struct user_process {
-    int index;
-    pid_t actualPid;
+
+    int id;
+    pid_t process_id;
     int priority;
     int duration;
     int progress;
     int burstTime;
     int waitTime;
+
 } us_p;
 
 typedef struct queue {
-    PCB* array;
-    int front;
-    int rear;
+
+    pcb* array;
+    int beginning;
+    int end;
     int size;
-    unsigned int queueCapacity;
+    unsigned int max_kids;
+
 } que;
 
 #endif
