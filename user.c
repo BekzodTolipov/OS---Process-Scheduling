@@ -23,6 +23,7 @@
 #include <stdarg.h> 
 #include <sys/types.h>
 #include <time.h>
+#include<sys/msg.h>
 #include "shared_mem.h"
 //Prototypes
 void fix_time();
@@ -33,6 +34,10 @@ void sem_clock_lock();
 void sem_clock_release();
 void sem_print_lock();
 void sem_print_release();
+int convert_to_millis(int q);
+long int convert_to_ns(int q);
+int random_numb_gen(int min, int max);
+
 
 
 int rand_numb;
@@ -49,13 +54,14 @@ struct sembuf sem_op;
 int sem_id;
 pid_t child_id;
 pid_t parent_id;
-unsigned int start_time;
+//unsigned int start_time;
 int msg_queue_id;
 simulated_clock *clock_point;
-us_p *user_process;
+US_P *user_process;
 int quantum;
 int pcb_shmid;
-pcb *pcb;
+PCB *pcb;
+Message *msg;
 //simulated_clock *start_time;
 
 /****************
@@ -86,9 +92,9 @@ int main(int argc, char *argv[])
 	msg_queue_id = msgget(msg_queue_key, 0666);
     // shmget returns an identifier in shmid 
     //int shmid_2 = shmget(key_2,2048,0666 | IPC_CREAT); 
-	int shmid_3 = shmget(key_4, sizeof(int), 0666 | IPC_CREAT);
+	//int shmid_3 = shmget(key_4, sizeof(int), 0666 | IPC_CREAT);
 	//Set up pcb starter
-    if ((pcb_shmid = shmget(pcb_key, sizeof(struct ProcessControlBlock) * 18, IPC_CREAT | 0644)) < 0) {
+    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 18, IPC_CREAT | 0644)) < 0) {
         fprintf(stderr, "shmat failed on shared message");
 		return 1;
     }
@@ -97,7 +103,7 @@ int main(int argc, char *argv[])
   
     // shmat to attach to shared memory 
     //shmMsg = (char*) shmat(shmid_2, NULL, 0);
-	check_permission = (int*) shmat(shmid_3, NULL, 0); 
+	//check_permission = (int*) shmat(shmid_3, NULL, 0); 
 
 	if(setupinterrupt() == -1){
          fprintf(stderr, "ERROR: Failed to set up handler");
@@ -111,13 +117,13 @@ int main(int argc, char *argv[])
 
 	// User process
 	user_process = (struct user_process*) malloc(sizeof(struct user_process));
-	
+	msg = (struct message*) malloc(sizeof(struct message));
 	//Set up child max duration
-	sem_clock_lock();		//Lock Sem simulated clock
-	sec = clock_point->sec;	//Copy sec to local
-	ns = clock_point->ns;	//Copy ns to local
-	sem_clock_release;		//Release Sem
-	start_time = sec * 1000000000 + ns;
+//	sem_clock_lock();		//Lock Sem simulated clock
+//	sec = clock_point->sec;	//Copy sec to local
+//	ns = clock_point->ns;	//Copy ns to local
+//	sem_clock_release;		//Release Sem
+//	start_time = sec * 1000000000 + ns;
 	// Decide if full quantum or half
 //	rand()%2 == 0? quantum = user_process->duration : quantum = random_numb_gen(0, user_process->duration/2);
 //	total_quantum_in_millis = convert_to_millis(quantum);
@@ -135,35 +141,36 @@ point and sends a signal on a semaphore so that oss can schedule another process
 		sem_clock_lock();       //Lock Sem simulated clock
 		sec = clock_point->sec; //Copy sec to local
 		ns = clock_point->ns;   //Copy ns to local
-		sem_clock_release;      //Release Sem
+		sem_clock_release();      //Release Sem
 		start_time = sec * 1000000000 + ns;
 
 		// Decide if full quantum or half
-		rand()%2 == 0? quantum = user_process->duration : quantum = random_numb_gen(0, user_process->duration/2);
-		total_quantum_in_millis = convert_to_millis(quantum);
+		quantum = rand()%2 == 0? user_process->duration : random_numb_gen(0, user_process->duration/2);
+		total_quantum_in_millis += convert_to_millis(quantum);
  /*  it updates its process control block by adding to the accumulated CPU time. It joins the ready queue at that
 125 point and sends a signal on a semaphore so that oss can schedule another process.?????????????????? */
-		if(total_quantom_in_millis < "50millis"){
+		if(total_quantum_in_millis < 50){
 			if(pcb[child_id].is_scheduled == 1){
 				sem_print_lock();
-				while("quantum+start_time in nanoseconds" < convert_to_ns(clock_point->sec) + clock_point->ns);
-				message msg;
+				while((quantum + start_time) < convert_to_ns(clock_point->sec) + clock_point->ns);
+				//Message msg;
 				msg->process_id = child_id;
-				msg->is_done = 1;
+				msg->done_flag = 1;
 				msg->sec = clock_point->sec;
 				msg->ns = clock_point->ns;
-				msgsnd(msg_queue_id, &msg, sizeof(message)-sizeof(long), 0);
+				msg->total_duration = total_quantum_in_millis;
+				msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), 0);
 				sem_print_release();
 			}
 		}
 		else{
 			int decide = -1;
-			rand()%2 == 1? decided = 1 : decided = 0;
-			if(decided){
+			decide = rand()%2 == 1? 1 : 0;
+			if(decide){
 				quit = false;
 			}
 			else{
-				total_quantom_in_millis -= "50 millis";
+				total_quantum_in_millis -= 50;
 			}
 		}
 	}
@@ -187,6 +194,7 @@ void fix_time(){
 
 /*******************
 * Set up interrupt * 
+    int progress;
 *******************/
 static int setupinterrupt(){
     struct sigaction act;
@@ -199,7 +207,7 @@ static int setupinterrupt(){
 * Set up my own handler *
 ************************/
 static void myhandler(int s){
-	shmdt(shmMsg);
+	//shmdt(shmMsg);
     shmdt(clock_point);
 
 	exit(1);
@@ -215,7 +223,7 @@ void strfcat(char *fmt, ...){
 	vsprintf(buffer, fmt, args);
 	va_end(args);
 
-	strcpy(shmMsg, buffer);
+//	strcpy(shmMsg, buffer);
 }
 
 /***********************
@@ -261,5 +269,17 @@ void sem_print_release(){
 int random_numb_gen(int min, int max) {
 
     return rand()%(max - min) + min;
+
+}
+
+int convert_to_millis(int q){
+
+	return q / 1000000;
+
+}
+
+long int convert_to_ns(int q){
+
+	return q * 1000000000;
 
 }

@@ -3,6 +3,9 @@
 #define HEADER_FILE
 #include <stdlib.h>
 
+#define thresh_hold_oss 100000
+#define thresh_hold_user 70000
+
 typedef struct Clock {
 
     unsigned int sec;
@@ -20,7 +23,7 @@ typedef struct process_control_block {
     int duration;//CPU time
     int wait_time;
 
-} pcb;
+} PCB;
 
 typedef struct user_process {
 
@@ -32,16 +35,30 @@ typedef struct user_process {
     int burst_time;
     int wait_time;
 
-} us_p;
+} US_P;
 
 typedef struct queue {
 
-    pcb* array;
+    PCB* array;
     int beginning;
     int end;
     int size;
     unsigned int max_kids;
 
-} que;
+} QUE;
+
+typedef struct message {
+
+    int process_id;
+    int done_flag;
+    int id;
+    int priority;
+    int duration;
+	int total_duration;
+    int sec;
+    int ns;
+    char* message;
+
+} Message;
 
 #endif

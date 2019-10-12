@@ -31,37 +31,53 @@
 #include <fcntl.h>          /* O_CREAT, O_EXEC */
 #include <stdbool.h>
 #include <sys/wait.h>
+#include <sys/msg.h>
 #include "shared_mem.h"
 
 //Prototypes
-que* queue_generator(int numb_kids);
+QUE* queue_generator(int numb_kids);
 int random_numb_gen(int min, int max);
-us_p _init_user_process(int index, pid_t child_id);
-pcb copy_user_to_pcb(pcb pcb, us_p user_process, int id);
-void push_to_queue(struct queue* queue, pcb pcb);
+US_P _init_user_process(int index, pid_t child_id);
+PCB copy_user_to_pcb(PCB pcb, US_P user_process, int id);
+void push_to_queue(struct queue* queue, PCB pcb);
+void pop_from_queue(QUE* queue);
 void fix_time();
 void sem_clock_lock();
 void sem_clock_release();
+int convert_to_millis(int q);
+long int convert_to_ns(int q);
+static int setuptimer(int s);
+static int setupinterrupt();
+static void myhandler(int s);
+void fix_time();
+
+
 //queue_lvl_find(int);
 
 
 
 ////////////////
 
-pcb* pcb;
+PCB* pcb;
 simulated_clock* sim_clock;
-que* low_queue;
-que* med_queue;
-que* high_queue;
+QUE* low_queue;
+QUE* med_queue;
+QUE* high_queue;
 int msg_queue_id;
 int *check_permission;
-int clock_point;
+simulated_clock* clock_point;
 int pcb_shmid;
 pid_t parent_pid;
 pid_t child_id;
 int bit_vector[18];
 static bool quit;
-char *shmMsg;
+int sem_id;
+//Semaphore set up
+struct sembuf sem_op;
+int clock_shmid;
+long int total_ns;
+Message msg;
+//char *shmMsg;
 
 
 #define MAXCHAR 1024
@@ -84,7 +100,7 @@ int main(int argc, char **argv){
 				return 0;
 			case 's':
 				strncpy(dummy, optarg, 255);
-                numb_child = toint(dummy);
+                //numb_child = toint(dummy);
                 if(numb_child > 20 || numb_child < 1){
 					fprintf(stderr, "ERROR: number of children should between 1 and 20");
 					abort();
@@ -95,7 +111,7 @@ int main(int argc, char **argv){
 				break;
 			case 't':
 				strncpy(dummy, optarg, 255);
-				max_time = toint(dummy);
+				//max_time = toint(dummy);
                 break;
 			default:
 				fprintf(stderr, "ERROR: Wrong Input is Given!");
@@ -120,7 +136,7 @@ int main(int argc, char **argv){
 	key_t sem_key = ftok("./oss.c", 24);
 
 	// System Timer set up
-    if(setuptimer(max_time) == -1){
+    if(setuptimer(10) == -1){
         fprintf(stderr, "ERROR: Failed set up timer");
         fclose(fptr);
 		return 1;
@@ -147,9 +163,9 @@ int main(int argc, char **argv){
 			bit_vector[i] = 0;
 	}
 
-	msg_queue_id = msgget(msg_queue_key, IPC_CREAT | 0644 );
+	msg_queue_id = msgget(msg_queue_key, IPC_CREAT | 0666);
 
-	if ((clock_shmid = shmget(clock_key, sizeof(simulated_clock), IPC_CREAT | 0644)) < 0) {
+	if ((clock_shmid = shmget(clock_key, sizeof(simulated_clock), IPC_CREAT | 0600)) < 0) {
         fprintf(stderr, "ERROR: shmat failed on shared message");
 		return 1;
     }
@@ -157,12 +173,12 @@ int main(int argc, char **argv){
     clock_point = shmat(clock_shmid, NULL, 0);
 	
 	//Set up starter values for clock and message signal
-	*check_permission = 0;
+	//*check_permission = 0;
 	clock_point->sec = 0;
 	clock_point->ns = 0;
 
 	//Set up pcb starter
-    if ((pcb_shmid = shmget(pcb_key, sizeof(struct ProcessControlBlock) * 18, IPC_CREAT | 0644)) < 0) {
+    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 18, IPC_CREAT | 0666)) < 0) {
         fprintf(stderr, "shmat failed on shared message");
 		return 1;
     }
@@ -175,72 +191,121 @@ int main(int argc, char **argv){
 	low_queue = queue_generator(18);
 
 	//int counter = 0;
-	int spawn = 0;
+	int spawning = 0;
 	int prev_clock = 0;
 	int queue_lvl = -1;
 	i = 0;
 	int start_ns = 0;
+	int which_queue = 0;
+	int total_cpu_spent_user = 0;
+	int total_cpu_spent_queue = 0;
+	long int start_time = 0;
 	while(!quit) {
 		if((i%17) == 0){
 			i = 0;
 		}
+		start_time = convert_to_ns(clock_point->sec) + clock_point->ns;
         if(bit_vector[i] == 0) {
             spawning = random_numb_gen(0, 2);
             if((clock_point->sec - prev_clock) >= spawning) {
                 child_id = fork();
 				bit_vector[i] = 1;
                 if(child_id == 0) {
-                    us_p user_process = _init_user_process(i, getpid());
+                    US_P user_process = _init_user_process(i, getpid());
 
                     pcb[i] = copy_user_to_pcb(pcb[i], user_process, i);
 
 
                     fprintf(stderr, "\nOSS: Generating process with PID %d and putting it in queue %d at time %d.%d\n", pcb[i].process_id, pcb[i].priority, clock_point->sec, clock_point->ns);
 
-                    if(pcb[i].priority == 0) {
-						if(high_queue->size < high_queue->max_kids){
-							push_to_queue(high_queue, pcb[i]);
-						} 
-						else 
-						{
-							fprintf(stderr, "OSS: HIGH QUEUE IS FULL");
-						}
-					} 
-					else if(pcb.priority[i] == 1) {
-						if(med_queue->size < med_queue->max_kids){
-							push_to_queue(low_queue, pcb[i]);
-						} 
-						else 
-						{
-							fprintf(stderr, "OSS: MEDIUM QUEUE IS FULL");
-						}
-					}
-					else{
-						if(low_queue->size < low_queue->max_kids){
-							push_to_queue(low_queue, pcb[i]);
-						} 
-						else 
-						{
-							fprintf(stderr, "OSS: LOW QUEUE IS FULL");
-						}
-					}
+                    //if(pcb[i].priority == 0) {
+					//	if(high_queue->size < high_queue->max_kids){
+		//	void push_to_queue(struct queue* queue, pcb pcb) {
+
+					push_to_queue(high_queue, pcb[i]);
+					execl("./child", "./child", NULL);
+					//	} 
+					//	else 
+					//	{
+					//		fprintf(stderr, "OSS: HIGH QUEUE IS FULL");
+					//	}
+				//	} 
+				//	else if(pcb.priority[i] == 1) {
+				//		if(med_queue->size < med_queue->max_kids){
+				//			push_to_queue(low_queue, pcb[i]);
+				//		} 
+				//		else 
+				//		{
+				//			fprintf(stderr, "OSS: MEDIUM QUEUE IS FULL");
+				//		}
+				//	}
+				//	else{
+				//		if(low_queue->size < low_queue->max_kids){
+				//			push_to_queue(low_queue, pcb[i]);
+				//		} 
+				//		else 
+				//		{
+				//			fprintf(stderr, "OSS: LOW QUEUE IS FULL");
+				//		}
+				//	}
 					//push_to_queue_or_not(pcb[i]);
 
 
                 } 
-				else if (childPid < 0) {
+				else if (child_id < 0) {
                     perror("ERROR: Fork() failed\n");
-                    exit(errno);
+                    return 1;
                 }
             }
 
             //counter++;
 
+    //int progress;
             prev_clock = clock_point->sec;
 
 			total_ns = clock_point->ns - start_ns;
-            fprintf(stderr, "OSS: total time this dispatch was %d nanoseconds", total_ns);
+            fprintf(stderr, "OSS: total time this dispatch was %li nanoseconds", total_ns);
+    //int progress;
+			//msg msg;
+			static int messageSize = sizeof(Message) - sizeof(long);
+			msgrcv(msg_queue_id, &msg, messageSize, msg_queue_key, 0);
+			
+			total_cpu_spent_queue -= start_time - msg.duration;
+			if(which_queue == 0){
+				total_cpu_spent_user += msg.duration;
+				if(total_cpu_spent_user > thresh_hold_user){
+					pop_from_queue(high_queue);
+					pcb[msg.process_id].priority = 1;
+					total_cpu_spent_user = 0;
+				}
+				if(total_cpu_spent_queue > thresh_hold_oss){
+					which_queue = 1;
+				}
+			}
+			else if(which_queue == 1){
+				total_cpu_spent_user += msg.duration;
+                if(total_cpu_spent_user > thresh_hold_user){
+                    pop_from_queue(med_queue);
+                    pcb[msg.process_id].priority = 2;
+					total_cpu_spent_user = 0;
+                }
+                if(total_cpu_spent_queue > thresh_hold_oss){
+                    which_queue = 2;
+                }
 
+			}
+			else{
+				total_cpu_spent_user += msg.duration;
+                if(total_cpu_spent_user > thresh_hold_user){
+                    pop_from_queue(low_queue);
+                    pcb[msg.process_id].priority = 0;
+					total_cpu_spent_user = 0;
+                }
+                if(total_cpu_spent_queue > thresh_hold_oss){
+                    which_queue = 0;
+                }
+
+			}
             //advanceSharedMemoryClock();
 			sem_clock_lock();
 
@@ -250,21 +315,50 @@ int main(int argc, char **argv){
 			// Release the critical section
 			sem_clock_release();
 		}
+		else{
+			for(i=0; i<20; i++){
+				if(pcb[i].process_id != 0){
+					if(kill(pcb[i].process_id, 0) == 0){
+						if(kill(pcb[i].process_id, SIGTERM) != 0){
+							perror("Child can't be terminated for unkown reason\n");
+						}
+					}
+				}
+			}
+
+			for(i=0;i<20;i++){
+				if(pcb[i].process_id != 0){
+					waitpid(pcb[i].process_id, NULL, 0);
+				}
+			}
+			msgctl(msg_queue_id, IPC_RMID, NULL);
+			shmdt(clock_point);
+			shmctl(clock_shmid, IPC_RMID, NULL);
+			shmdt(pcb);
+			shmctl(pcb_shmid, IPC_RMID, NULL);
+			return 1;
+
+		}
+		
     }
 
-
+	msgctl(msg_queue_id, IPC_RMID, NULL);
+	shmdt(clock_point);
+	shmctl(clock_shmid, IPC_RMID, NULL);
+	shmdt(pcb);
+	shmctl(pcb_shmid, IPC_RMID, NULL);
 	return 0;
 }
 
-struct que* queue_generator(int numb_kids){
+struct queue* queue_generator(int numb_kids){
 	
-	struct que* queue = (struct que*) malloc(sizeof(struct que));
+	struct queue* queue = (struct queue*) malloc(sizeof(struct queue));
 
     queue->max_kids = numb_kids;
     queue->beginning = 0;
 	queue->size = 0;
     queue->end = numb_kids - 1;
-    queue->array = (pcb*)malloc(que->max_kids * sizeof(pcb));
+    queue->array = (PCB*)malloc(queue->max_kids * sizeof(PCB));
    
 	return queue;
 
@@ -276,9 +370,9 @@ int random_numb_gen(int min, int max) {
 
 }
 
-us_p _init_user_process(int index, pid_t child_id){
+US_P _init_user_process(int index, pid_t child_id){
 
-	us_p* user_process = (struct user_process*) malloc(sizeof(struct user_process));
+	US_P* user_process = (struct user_process*) malloc(sizeof(struct user_process));
 	user_process->id = index;
 	user_process->process_id = child_id;
 	user_process->priority = 0;
@@ -288,13 +382,13 @@ us_p _init_user_process(int index, pid_t child_id){
        user_process->duration = 0;
        user_process->wait_time = 0;
 
-   } else if(randNum == 1) {
+   } else if(random_number == 1) {
        user_process->duration = 50000;
        user_process->wait_time = 0;
 
    } else if(random_number == 2) {
-       int seconds = random_numb_gen(0, 4);
-       int milli_sec = random_numb_gen(0, 999) * 1000000;
+       int seconds = random_numb_gen(0, 5);
+       int milli_sec = random_numb_gen(0, 1000) * 1000000;
        int total_nanos = seconds * 1000000000 + milli_sec;
 		
 
@@ -303,30 +397,30 @@ us_p _init_user_process(int index, pid_t child_id){
 
    } else if(random_number == 3) {
        double p_value = random_numb_gen(1, 99) / 100;
-       user_process->duration = user_process->burst_time - (p_value * user_process->burst_time);
+       user_process->duration = p_value * 50000;
        user_process->wait_time = 0;
    }
 
     return *user_process;
 }
 
-pcb copy_user_to_pcb(pcb pcb, us_p user_process, int id){
+PCB copy_user_to_pcb(PCB pcb, US_P user_process, int id){
 
 	pcb.id = id;
     pcb.process_id = user_process.process_id;
 	pcb.priority = user_process.priority;
-	pcb.burstTime = user_process.burst_time;
+	pcb.burst_time = user_process.burst_time;
     pcb.duration = user_process.duration;	
-	pcb.waitTime = user_process.wait_time;
+	pcb.wait_time = user_process.wait_time;
 
     return pcb;
 }
 
-void push_to_queue(struct queue* queue, pcb pcb) {
-    if(queue->size < queue->max_kids) {
-        queue->end = (queue->end++)%queue->max_kids;
-        queue->array[queue->end] = pcb;
-        queue->size++;
+void push_to_queue(struct queue* q, PCB pcb) {
+    if(q->size < q->max_kids) {
+        q->end = (q->end+1)%q->max_kids;
+        q->array[q->end] = pcb;
+        q->size++;
     }
 }
 
@@ -358,5 +452,91 @@ void sem_clock_release(){
     sem_op.sem_op = 1;
     sem_op.sem_flg = 0;
     semop(sem_id, &sem_op, 1);
+}
+
+int convert_to_millis(int q){
+
+    return q / 1000000;
+
+}
+
+long int convert_to_ns(int q){
+
+    return q * 1000000000;
+
+}
+
+void pop_from_queue(struct queue* q) {
+   // PCB* item = NULL;
+
+   // *item = queue->array[queue->front];
+    q->beginning = (q->beginning + 1)%q->max_kids;
+    q->size = q->size - 1;
+    //return *item;
+
+}
+
+/*************** 
+* Set up timer *
+***************/
+static int setuptimer(int time){
+    struct itimerval value;
+    value.it_value.tv_sec = time;
+   value.it_value.tv_usec = 0;
+
+    value.it_interval.tv_sec = 0;
+    value.it_interval.tv_usec = 0;
+    return(setitimer(ITIMER_REAL, &value, NULL));
+}
+ 
+/*******************
+* Set up interrupt *
+*******************/
+static int setupinterrupt(){
+    struct sigaction act;
+    act.sa_handler = &myhandler;
+    act.sa_flags = SA_RESTART;
+    return(sigemptyset(&act.sa_mask) || sigaction(SIGALRM, &act, NULL));
+}
+
+/************************
+* Set up my own handler *
+************************/
+static void myhandler(int s){
+	fprintf(stderr, "\n!!!Termination begin since timer reached its time!!!\n");
+	int i;
+	for(i=0; i<20; i++){
+        if(pcb[i].process_id != 0){
+            if(kill(pcb[i].process_id, 0) == 0){
+                if(kill(pcb[i].process_id, SIGTERM) != 0){
+                    perror("Child can't be terminated for unkown reason\n");
+                }
+            }
+        }
+    }
+
+    for(i=0;i<20;i++){
+		if(pcb[i].process_id != 0){
+            waitpid(pcb[i].process_id, NULL, 0);
+        }
+    }
+
+//	for(i=0; i<20; i++){
+//		if(child_arr[i] != 0){
+//			if(kill(child_arr[i], 0) == 0){
+//				if(kill(child_arr[i], SIGTERM) != 0){
+//					perror("Child can't be terminated for unkown reason\n");
+//				}
+//			}
+//		}
+//	}
+
+//	for(i=0;i<20;i++){
+//		if(child_arr[i] != 0){
+//			waitpid(child_arr[i], NULL, 0);
+//		}
+//	}
+
+//	quit = true;
 }
 
