@@ -51,6 +51,7 @@ static int setuptimer(int s);
 static int setupinterrupt();
 static void myhandler(int s);
 void fix_time();
+//int toint(char str[]);
 
 
 //queue_lvl_find(int);
@@ -119,6 +120,7 @@ int main(int argc, char **argv){
 				abort();
 
 		}
+		fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
 	}
 
 	FILE *fptr;
@@ -201,13 +203,14 @@ int main(int argc, char **argv){
 	int total_cpu_spent_user = 0;
 	int total_cpu_spent_queue = 0;
 	long int start_time = 0;
+	char index_str[MAXCHAR];
 	while(!quit) {
 		if((i%18) == 0){
 			i = 0;
 		}
 		start_time = convert_to_ns(clock_point->sec) + clock_point->ns;
 		//fprintf(stderr, "BBBITTT vector before creating: %d\n\n", bit_vector[i]);
-        if(bit_vector[i] == 0) {
+        if(bit_vector[0] == 0) {
             spawning = random_numb_gen(0, 2);
             if((clock_point->sec - prev_clock) >= spawning) {
                 child_id = fork();
@@ -227,7 +230,9 @@ int main(int argc, char **argv){
 
 					push_to_queue(high_queue, pcb[i]);
 					pcb[i].is_scheduled = 1;
-					execl("./child", "./child", i, NULL);
+					//index_str = toint(i);
+					sprintf(index_str, "%d", i);
+					execl("./child", "./child", index_str, NULL);
 					//	} 
 					//	else 
 					//	{
@@ -264,6 +269,7 @@ int main(int argc, char **argv){
 
 			int stat;
 			pid_t remove_pid = waitpid(-1, &stat, WNOHANG);	// Non block wait for parent
+		fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
 		// If somebody died then barry them underground
 		// and remove them from history
 			if(remove_pid > 0){
@@ -293,6 +299,9 @@ int main(int argc, char **argv){
 			msgrcv(msg_queue_id, &msg, messageSize, 1, IPC_NOWAIT); // type is 0
 			//	fprintf(stderr, "\nOSS: exit: msgrcv error, %s\n", strerror(errno)); // error
 				//return 1;
+			//}
+			//if(msg.done_flag == 1){
+			//	pcb[msg.id].is_scheduled = 0;
 			//}
 			if(errno == ENOMSG){
 				//no message yet increment clock here
@@ -328,6 +337,7 @@ int main(int argc, char **argv){
 						pop_from_queue(med_queue);
 						pcb[msg.process_id].priority = 2;
 						total_cpu_spent_user = 0;
+	//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
 					}
 					if(total_cpu_spent_queue > thresh_hold_oss){
 						which_queue = 2;
@@ -386,6 +396,7 @@ int main(int argc, char **argv){
 		//}
 		
     }
+		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
 
 	msgctl(msg_queue_id, IPC_RMID, NULL);
 	shmdt(clock_point);
@@ -395,6 +406,7 @@ int main(int argc, char **argv){
 	shmctl(clock_shmid, IPC_RMID, NULL);
     shmctl(pcb_shmid, IPC_RMID, NULL);
 	//shmctl(shmid_3, IPC_RMID, NULL);
+	//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
     semctl(sem_id, 0, IPC_RMID);
     semctl(sem_id, 1, IPC_RMID);
 	return 0;
@@ -439,10 +451,12 @@ US_P _init_user_process(int index, pid_t child_id){
 
    } else if(random_number == 2) {
        int seconds = random_numb_gen(0, 5);
+	//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
        int milli_sec = random_numb_gen(0, 1000) * 1000000;
        int total_nanos = seconds * 1000000000 + milli_sec;
 		
 
+		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
        user_process->wait_time = milli_sec + total_nanos;
        user_process->duration = QUANTUM;
 
@@ -468,6 +482,7 @@ PCB copy_user_to_pcb(PCB pcb, US_P user_process, int id){
 }
 
 void push_to_queue(struct queue* q, PCB pcb) {
+		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
     if(q->size < q->max_kids) {
         q->end = (q->end+1)%q->max_kids;
         q->array[q->end] = pcb;

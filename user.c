@@ -144,53 +144,56 @@ point and sends a signal on a semaphore so that oss can schedule another process
 	//fprintf(stderr, "USER: user is activated : pid: (%d)\n", getpid());
 	fprintf(stderr, "PCB duration: %d\n", pcb[pcb_id].duration);
     int i;
-    while (!quit) {
-		//Set up child max duration
-		sem_clock_lock();       //Lock Sem simulated clock
-		sec = clock_point->sec; //Copy sec to local
-		ns = clock_point->ns;   //Copy ns to local
-		sem_clock_release();      //Release Sem
-		start_time = sec * 1000000000 + ns;
-		fprintf(stderr, "PCB duration: %d\n", pcb[pcb_id].id);
-		// Decide if full quantum or half
-		quantum = rand()%2 == 0? pcb[pcb_id].duration : random_numb_gen(0, pcb[pcb_id].duration/2);
-		total_quantum_in_millis += convert_to_millis(quantum);
+	if(pcb[pcb_id].duration != 0){
+		while (!quit) {
+			//Set up child max duration
+			sem_clock_lock();       //Lock Sem simulated clock
+			sec = clock_point->sec; //Copy sec to local
+			ns = clock_point->ns;   //Copy ns to local
+			sem_clock_release();      //Release Sem
+			start_time = sec * 1000000000 + ns;
+			fprintf(stderr, "PCB duration: %d\n", pcb[pcb_id].id);
+			// Decide if full quantum or half
+			quantum = rand()%2 == 0? pcb[pcb_id].duration : random_numb_gen(0, pcb[pcb_id].duration/2);
+			total_quantum_in_millis += convert_to_millis(quantum);
  /*  it updates its process control block by adding to the accumulated CPU time. It joins the ready queue at that
 125 point and sends a signal on a semaphore so that oss can schedule another process.?????????????????? */
-		fprintf(stderr, "USER: Curretn total quatum %d\n", total_quantum_in_millis);
-		if(total_quantum_in_millis < 50){
-			if(pcb[pcb_id].is_scheduled == 1){
-				fprintf(stderr, "\n!!!!!!!!USER: I got scheduled\n");
-				sem_print_lock();
-				while((quantum + start_time) < convert_to_ns(clock_point->sec) + clock_point->ns);
-				//Message msg;
-				msg->mtype = 1;
-				msg->process_id = child_id;
-				msg->done_flag = 1;
-				msg->sec = clock_point->sec;
-				msg->ns = clock_point->ns;
-				msg->total_duration = total_quantum_in_millis;
-				//msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), 0);
-				// Send a message.
-				if((msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), IPC_NOWAIT)) < 0){
+			fprintf(stderr, "USER: Curretn total quatum %d\n", total_quantum_in_millis);
+			if(total_quantum_in_millis < 50){
+				if(pcb[pcb_id].is_scheduled == 1){
+					fprintf(stderr, "\n!!!!!!!!USER: I got scheduled: PID (%d)\n", getpid());
+					sem_print_lock();
+					while((quantum + start_time) < convert_to_ns(clock_point->sec) + clock_point->ns);
+					//Message msg;
+					msg->mtype = 1;
+					msg->process_id = child_id;
+					msg->done_flag = 1;
+					msg->id = pcb_id;
+					msg->sec = clock_point->sec;
+					msg->ns = clock_point->ns;
+					msg->total_duration = total_quantum_in_millis;
+					//msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), 0);
+					// Send a message.
+					if((msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), IPC_NOWAIT)) < 0){
 					//printf("%d, %d, %s, %d\n", msqid, sbuf.mtype, sbuf.mtext, buf_length);
-					perror("msgsnd");
-				}
-				else
-					printf("\nMessage Sent\n");
+						perror("msgsnd");
+					}
+					else
+						printf("\nMessage Sent\n");
 
-				sem_print_release();
-			}
-		}
-		else{
-			int decide = -1;
-			decide = rand()%2 == 1? 1 : 0;
-			if(decide){
-				quit = false;
+					sem_print_release();
+				}
 			}
 			else{
-				total_quantum_in_millis -= 50;
-			}
+				int decide = -1;
+				decide = rand()%2 == 1? 1 : 0;
+				if(decide){
+					quit = false;
+				}
+				else{
+					total_quantum_in_millis -= 50;
+				}
+			}	
 		}
 	}
 	//detach memory
