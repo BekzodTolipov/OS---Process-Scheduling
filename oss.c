@@ -210,7 +210,7 @@ int main(int argc, char **argv){
 		}
 		start_time = convert_to_ns(clock_point->sec) + clock_point->ns;
 		//fprintf(stderr, "BBBITTT vector before creating: %d\n\n", bit_vector[i]);
-        if(bit_vector[0] == 0) {
+        if(bit_vector[i] == 0) {
             spawning = random_numb_gen(0, 2);
             if((clock_point->sec - prev_clock) >= spawning) {
                 child_id = fork();
@@ -269,7 +269,7 @@ int main(int argc, char **argv){
 
 			int stat;
 			pid_t remove_pid = waitpid(-1, &stat, WNOHANG);	// Non block wait for parent
-		fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
+	//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
 		// If somebody died then barry them underground
 		// and remove them from history
 			if(remove_pid > 0){
@@ -294,19 +294,19 @@ int main(int argc, char **argv){
             fprintf(stderr, "OSS: total time this dispatch was %li nanoseconds\n", total_ns);
     //int progress;
 			//msg msg;
-			static int messageSize = sizeof(Message) - sizeof(long);
+			static int messageSize = sizeof(Message);// - sizeof(long);
 			/* receive a message */
 			msgrcv(msg_queue_id, &msg, messageSize, 1, IPC_NOWAIT); // type is 0
 			//	fprintf(stderr, "\nOSS: exit: msgrcv error, %s\n", strerror(errno)); // error
 				//return 1;
 			//}
-			//if(msg.done_flag == 1){
-			//	pcb[msg.id].is_scheduled = 0;
-			//}
+			if(msg.done_flag == 1){
+				pcb[msg.id].is_scheduled = 0;
+			}
 			if(errno == ENOMSG){
 				//no message yet increment clock here
 			//	errno = 0;
-				fprintf(stderr, "OSS: NO MSG increment time!\n");
+			//	fprintf(stderr, "OSS: NO MSG increment time!\n");
 				sem_clock_lock();
 
 				//increment seconds
