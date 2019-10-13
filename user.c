@@ -73,6 +73,13 @@ int main(int argc, char *argv[])
 	child_id = getpid();
 	parent_id = getppid();
 	quit = false;
+	int pcb_id = atoi(argv[1]);
+
+	if(setupinterrupt() == -1){
+         fprintf(stderr, "ERROR: Failed to set up handler");
+         return 1;
+    }
+
 	srand((unsigned) time(NULL));
 	rand_numb = (rand() % (5 - 1000000 + 1)) + 5;	
 	
@@ -134,7 +141,8 @@ point and sends a signal on a semaphore so that oss can schedule another process
 	//ns += rand_numb;
 
 	//fix_time();
-
+	//fprintf(stderr, "USER: user is activated : pid: (%d)\n", getpid());
+	fprintf(stderr, "PCB duration: %d\n", pcb[pcb_id].duration);
     int i;
     while (!quit) {
 		//Set up child max duration
@@ -143,23 +151,34 @@ point and sends a signal on a semaphore so that oss can schedule another process
 		ns = clock_point->ns;   //Copy ns to local
 		sem_clock_release();      //Release Sem
 		start_time = sec * 1000000000 + ns;
-
+		fprintf(stderr, "PCB duration: %d\n", pcb[pcb_id].id);
 		// Decide if full quantum or half
-		quantum = rand()%2 == 0? user_process->duration : random_numb_gen(0, user_process->duration/2);
+		quantum = rand()%2 == 0? pcb[pcb_id].duration : random_numb_gen(0, pcb[pcb_id].duration/2);
 		total_quantum_in_millis += convert_to_millis(quantum);
  /*  it updates its process control block by adding to the accumulated CPU time. It joins the ready queue at that
 125 point and sends a signal on a semaphore so that oss can schedule another process.?????????????????? */
+		fprintf(stderr, "USER: Curretn total quatum %d\n", total_quantum_in_millis);
 		if(total_quantum_in_millis < 50){
-			if(pcb[child_id].is_scheduled == 1){
+			if(pcb[pcb_id].is_scheduled == 1){
+				fprintf(stderr, "\n!!!!!!!!USER: I got scheduled\n");
 				sem_print_lock();
 				while((quantum + start_time) < convert_to_ns(clock_point->sec) + clock_point->ns);
 				//Message msg;
+				msg->mtype = 1;
 				msg->process_id = child_id;
 				msg->done_flag = 1;
 				msg->sec = clock_point->sec;
 				msg->ns = clock_point->ns;
 				msg->total_duration = total_quantum_in_millis;
-				msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), 0);
+				//msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), 0);
+				// Send a message.
+				if((msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), IPC_NOWAIT)) < 0){
+					//printf("%d, %d, %s, %d\n", msqid, sbuf.mtype, sbuf.mtext, buf_length);
+					perror("msgsnd");
+				}
+				else
+					printf("\nMessage Sent\n");
+
 				sem_print_release();
 			}
 		}
@@ -177,6 +196,9 @@ point and sends a signal on a semaphore so that oss can schedule another process
 	//detach memory
 	//shmdt(shmMsg);
 	shmdt(clock_point);
+	shmdt(pcb);
+	free(user_process);
+	free(msg);
 
 	return 0;
 }
@@ -209,6 +231,7 @@ static int setupinterrupt(){
 static void myhandler(int s){
 	//shmdt(shmMsg);
     shmdt(clock_point);
+	shmdt(pcb);
 
 	exit(1);
 }
@@ -283,3 +306,4 @@ long int convert_to_ns(int q){
 	return q * 1000000000;
 
 }
+

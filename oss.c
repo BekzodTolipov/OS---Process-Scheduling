@@ -32,6 +32,7 @@
 #include <stdbool.h>
 #include <sys/wait.h>
 #include <sys/msg.h>
+#include <errno.h>
 #include "shared_mem.h"
 
 //Prototypes
@@ -201,15 +202,17 @@ int main(int argc, char **argv){
 	int total_cpu_spent_queue = 0;
 	long int start_time = 0;
 	while(!quit) {
-		if((i%17) == 0){
+		if((i%18) == 0){
 			i = 0;
 		}
 		start_time = convert_to_ns(clock_point->sec) + clock_point->ns;
+		//fprintf(stderr, "BBBITTT vector before creating: %d\n\n", bit_vector[i]);
         if(bit_vector[i] == 0) {
             spawning = random_numb_gen(0, 2);
             if((clock_point->sec - prev_clock) >= spawning) {
                 child_id = fork();
 				bit_vector[i] = 1;
+				//fprintf(stderr, "BBBITTTT vector after creating %d\n\n", bit_vector[i]);
                 if(child_id == 0) {
                     US_P user_process = _init_user_process(i, getpid());
 
@@ -223,7 +226,8 @@ int main(int argc, char **argv){
 		//	void push_to_queue(struct queue* queue, pcb pcb) {
 
 					push_to_queue(high_queue, pcb[i]);
-					execl("./child", "./child", NULL);
+					pcb[i].is_scheduled = 1;
+					execl("./child", "./child", i, NULL);
 					//	} 
 					//	else 
 					//	{
@@ -258,87 +262,128 @@ int main(int argc, char **argv){
                 }
             }
 
-            //counter++;
-
-    //int progress;
-            prev_clock = clock_point->sec;
-
-			total_ns = clock_point->ns - start_ns;
-            fprintf(stderr, "OSS: total time this dispatch was %li nanoseconds", total_ns);
-    //int progress;
-			//msg msg;
-			static int messageSize = sizeof(Message) - sizeof(long);
-			msgrcv(msg_queue_id, &msg, messageSize, msg_queue_key, 0);
-			
-			total_cpu_spent_queue -= start_time - msg.duration;
-			if(which_queue == 0){
-				total_cpu_spent_user += msg.duration;
-				if(total_cpu_spent_user > thresh_hold_user){
-					pop_from_queue(high_queue);
-					pcb[msg.process_id].priority = 1;
-					total_cpu_spent_user = 0;
-				}
-				if(total_cpu_spent_queue > thresh_hold_oss){
-					which_queue = 1;
-				}
-			}
-			else if(which_queue == 1){
-				total_cpu_spent_user += msg.duration;
-                if(total_cpu_spent_user > thresh_hold_user){
-                    pop_from_queue(med_queue);
-                    pcb[msg.process_id].priority = 2;
-					total_cpu_spent_user = 0;
-                }
-                if(total_cpu_spent_queue > thresh_hold_oss){
-                    which_queue = 2;
-                }
-
-			}
-			else{
-				total_cpu_spent_user += msg.duration;
-                if(total_cpu_spent_user > thresh_hold_user){
-                    pop_from_queue(low_queue);
-                    pcb[msg.process_id].priority = 0;
-					total_cpu_spent_user = 0;
-                }
-                if(total_cpu_spent_queue > thresh_hold_oss){
-                    which_queue = 0;
-                }
-
-			}
-            //advanceSharedMemoryClock();
-			sem_clock_lock();
-
-			//increment seconds
-			clock_point->ns += 1000;
-			fix_time();
-			// Release the critical section
-			sem_clock_release();
-		}
-		else{
-			for(i=0; i<20; i++){
-				if(pcb[i].process_id != 0){
-					if(kill(pcb[i].process_id, 0) == 0){
-						if(kill(pcb[i].process_id, SIGTERM) != 0){
-							perror("Child can't be terminated for unkown reason\n");
-						}
+			int stat;
+			pid_t remove_pid = waitpid(-1, &stat, WNOHANG);	// Non block wait for parent
+		// If somebody died then barry them underground
+		// and remove them from history
+			if(remove_pid > 0){
+				fprintf(stderr, "\n\nOSS: deleting child from array\n\n");
+				int pos;
+				for(pos=0; pos<18;pos++){
+					if(pcb[pos].process_id == remove_pid){
+						bit_vector[pcb[pos].id] = 0;
 					}
 				}
 			}
 
-			for(i=0;i<20;i++){
-				if(pcb[i].process_id != 0){
-					waitpid(pcb[i].process_id, NULL, 0);
-				}
-			}
-			msgctl(msg_queue_id, IPC_RMID, NULL);
-			shmdt(clock_point);
-			shmctl(clock_shmid, IPC_RMID, NULL);
-			shmdt(pcb);
-			shmctl(pcb_shmid, IPC_RMID, NULL);
-			return 1;
+            //counter++;
 
+    //int progress;
+			//sem_clock_lock;
+            prev_clock = clock_point->sec;
+			//sem_clock_release;
+
+			total_ns = clock_point->ns - start_ns;
+			//sem_clock_release;
+            fprintf(stderr, "OSS: total time this dispatch was %li nanoseconds\n", total_ns);
+    //int progress;
+			//msg msg;
+			static int messageSize = sizeof(Message) - sizeof(long);
+			/* receive a message */
+			msgrcv(msg_queue_id, &msg, messageSize, 1, IPC_NOWAIT); // type is 0
+			//	fprintf(stderr, "\nOSS: exit: msgrcv error, %s\n", strerror(errno)); // error
+				//return 1;
+			//}
+			if(errno == ENOMSG){
+				//no message yet increment clock here
+			//	errno = 0;
+				fprintf(stderr, "OSS: NO MSG increment time!\n");
+				sem_clock_lock();
+
+				//increment seconds
+				clock_point->ns += 1000;
+				fix_time();
+				// Release the critical section
+				sem_clock_release();
+				//increment clock
+			}
+			//msgrcv(msg_queue_id, &msg, messageSize, msg_queue_key, 0);
+			else{
+				fprintf(stderr, "OSS: received message!!\n");
+				total_cpu_spent_queue -= start_time - msg.duration;
+				if(which_queue == 0){
+					total_cpu_spent_user += msg.duration;
+					if(total_cpu_spent_user > thresh_hold_user){
+						pop_from_queue(high_queue);
+						pcb[msg.process_id].priority = 1;
+						total_cpu_spent_user = 0;
+					}
+					if(total_cpu_spent_queue > thresh_hold_oss){
+						which_queue = 1;
+					}
+				}
+				else if(which_queue == 1){
+					total_cpu_spent_user += msg.duration;
+					if(total_cpu_spent_user > thresh_hold_user){
+						pop_from_queue(med_queue);
+						pcb[msg.process_id].priority = 2;
+						total_cpu_spent_user = 0;
+					}
+					if(total_cpu_spent_queue > thresh_hold_oss){
+						which_queue = 2;
+					}
+
+				}
+				else{
+					total_cpu_spent_user += msg.duration;
+					if(total_cpu_spent_user > thresh_hold_user){
+						pop_from_queue(low_queue);
+						pcb[msg.process_id].priority = 0;
+						total_cpu_spent_user = 0;
+					}
+					if(total_cpu_spent_queue > thresh_hold_oss){
+						which_queue = 0;
+					}
+
+				}
+				//advanceSharedMemoryClock();
+				sem_clock_lock();
+
+				//increment seconds
+				clock_point->ns += 1000;
+				fix_time();
+				// Release the critical section
+				sem_clock_release();
+			}
+			i++;
 		}
+		//else{
+		//	fprintf(stderr, "\nStart to terminate everything current i: %d\n", i);
+		//	for(i=0; i<20; i++){
+		//		if(pcb[i].process_id != 0){
+		//			if(kill(pcb[i].process_id, 0) == 0){
+		//				if(kill(pcb[i].process_id, SIGTERM) != 0){
+		//					perror("Child can't be terminated for unkown reason\n");
+		//				}
+		//			}
+		//		}
+		//	}
+
+		//	for(i=0;i<20;i++){
+		//		if(pcb[i].process_id != 0){
+		//			waitpid(pcb[i].process_id, NULL, 0);
+		//		}
+		//	}
+		//	break;
+		//	msgctl(msg_queue_id, IPC_RMID, NULL);
+		//	shmdt(clock_point);
+		//	shmctl(clock_shmid, IPC_RMID, NULL);
+		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
+		//	shmdt(pcb);
+		//	shmctl(pcb_shmid, IPC_RMID, NULL);
+			//return 1;
+
+		//}
 		
     }
 
@@ -347,6 +392,11 @@ int main(int argc, char **argv){
 	shmctl(clock_shmid, IPC_RMID, NULL);
 	shmdt(pcb);
 	shmctl(pcb_shmid, IPC_RMID, NULL);
+	shmctl(clock_shmid, IPC_RMID, NULL);
+    shmctl(pcb_shmid, IPC_RMID, NULL);
+	//shmctl(shmid_3, IPC_RMID, NULL);
+    semctl(sem_id, 0, IPC_RMID);
+    semctl(sem_id, 1, IPC_RMID);
 	return 0;
 }
 
@@ -378,12 +428,13 @@ US_P _init_user_process(int index, pid_t child_id){
 	user_process->priority = 0;
 
 	int random_number = random_numb_gen(0, 3);
+//	fprintf(stderr, "OSS: RANDOM NUMBER: %d\n", random_number);
    if(random_number == 0) {
        user_process->duration = 0;
        user_process->wait_time = 0;
 
    } else if(random_number == 1) {
-       user_process->duration = 50000;
+       user_process->duration = QUANTUM;
        user_process->wait_time = 0;
 
    } else if(random_number == 2) {
@@ -393,11 +444,11 @@ US_P _init_user_process(int index, pid_t child_id){
 		
 
        user_process->wait_time = milli_sec + total_nanos;
-       user_process->duration = 50000;
+       user_process->duration = QUANTUM;
 
    } else if(random_number == 3) {
        double p_value = random_numb_gen(1, 99) / 100;
-       user_process->duration = p_value * 50000;
+       user_process->duration = p_value * QUANTUM;
        user_process->wait_time = 0;
    }
 
@@ -537,6 +588,6 @@ static void myhandler(int s){
 //		}
 //	}
 
-//	quit = true;
+	quit = true;
 }
 

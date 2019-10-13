@@ -5,6 +5,7 @@
 
 #define thresh_hold_oss 100000
 #define thresh_hold_user 70000
+#define QUANTUM 50000
 
 typedef struct Clock {
 
@@ -49,6 +50,7 @@ typedef struct queue {
 
 typedef struct message {
 
+	long int mtype;
     int process_id;
     int done_flag;
     int id;
