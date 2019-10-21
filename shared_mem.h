@@ -6,6 +6,8 @@
 #define thresh_hold_oss 100000
 #define thresh_hold_user 70000
 #define QUANTUM 50000
+#define ALPHA 2.2
+#define BETTA 2.8
 
 typedef struct Clock {
 
@@ -23,6 +25,7 @@ typedef struct process_control_block {
     int burst_time;
     int duration;//CPU time
     int wait_time;
+	bool terminate;
 
 } PCB;
 
@@ -35,16 +38,21 @@ typedef struct user_process {
     int progress;
     int burst_time;
     int wait_time;
+	bool terminate;
 
 } US_P;
 
+typedef struct QNode {
+
+    int id;
+	struct QNode *next;
+
+} q_node;
+
 typedef struct queue {
 
-    PCB* array;
-    int beginning;
-    int end;
-    int size;
-    unsigned int max_kids;
+    struct QNode *front;
+	struct QNode *rear;
 
 } QUE;
 
@@ -56,10 +64,11 @@ typedef struct message {
     int id;
     int priority;
     int duration;
-	int total_duration;
+	int burst_time;
     int sec;
     int ns;
     char* message;
+	int wait_time;
 
 } Message;
 

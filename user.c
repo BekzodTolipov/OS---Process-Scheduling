@@ -44,7 +44,7 @@ int rand_numb;
 static bool quit;
 int sec;
 int ns;
-int start_time;
+unsigned int start_time;
 int total_quantum_in_millis;
 int *check_permission;
 //struct Clock *clock_point;
@@ -61,7 +61,7 @@ US_P *user_process;
 int quantum;
 int pcb_shmid;
 PCB *pcb;
-Message *msg;
+static struct message msg;
 //simulated_clock *start_time;
 
 /****************
@@ -73,6 +73,7 @@ int main(int argc, char *argv[])
 	child_id = getpid();
 	parent_id = getppid();
 	quit = false;
+	int burst_time;
 	int pcb_id = atoi(argv[1]);
 
 	if(setupinterrupt() == -1){
@@ -86,7 +87,7 @@ int main(int argc, char *argv[])
 	key_t clock_key = ftok("./oss.c", 22);
 	
 	if ((shmid = shmget(clock_key, sizeof(struct Clock), IPC_CREAT | 0644)) < 0){
-		fprintf(stderr, "ERROR: Failed access to shared clock");
+		fprintf(stderr, "ERROR: USER: Failed access to shared clock");
 		return 1;
 	}
 
@@ -101,8 +102,8 @@ int main(int argc, char *argv[])
     //int shmid_2 = shmget(key_2,2048,0666 | IPC_CREAT); 
 	//int shmid_3 = shmget(key_4, sizeof(int), 0666 | IPC_CREAT);
 	//Set up pcb starter
-    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 18, IPC_CREAT | 0644)) < 0) {
-        fprintf(stderr, "shmat failed on shared message");
+    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 3, IPC_CREAT | 0644)) < 0) {
+        fprintf(stderr, "EEROR: USER: shmat failed on shared pcb");
 		return 1;
     }
 	//Attach shared mem to pcb
@@ -122,86 +123,130 @@ int main(int argc, char *argv[])
 	semctl(sem_id, 1, SETVAL, 1);
 	clock_point = shmat(shmid, NULL, 0);
 
+	//fprintf(stderr, "USER: getting in to while loop\n");
 	// User process
-	user_process = (struct user_process*) malloc(sizeof(struct user_process));
-	msg = (struct message*) malloc(sizeof(struct message));
-	//Set up child max duration
-//	sem_clock_lock();		//Lock Sem simulated clock
-//	sec = clock_point->sec;	//Copy sec to local
-//	ns = clock_point->ns;	//Copy ns to local
-//	sem_clock_release;		//Release Sem
-//	start_time = sec * 1000000000 + ns;
-	// Decide if full quantum or half
-//	rand()%2 == 0? quantum = user_process->duration : quantum = random_numb_gen(0, user_process->duration/2);
-//	total_quantum_in_millis = convert_to_millis(quantum);
-/*	it updates its process control block by adding to the accumulated CPU time. It joins the ready queue at that
-point and sends a signal on a semaphore so that oss can schedule another process.?????????????????? */
+	//user_process = (struct user_process*) malloc(sizeof(struct user_process));
+	//msg = (struct message*) malloc(sizeof(struct message));
+	
+	while (!quit) {
+		//Set up child max duration
+	//	sem_clock_lock();       //Lock Sem simulated clock
+		sec = clock_point->sec; //Copy sec to local
+		ns = clock_point->ns;   //Copy ns to local
+	//	sem_clock_release();      //Release Sem
+		start_time = convert_to_ns(sec) + ns;
+		pcb[pcb_id].terminate = false;
+		while(1){
+			
+			//fprintf(stderr, "USER: getting in to while loop: pid(%d)\n", getpid());
+			int result = msgrcv(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), getpid(    ), IPC_NOWAIT);
+			if(result != -1){
+				fprintf(stderr, "USER: recieved msg pid: %d", msg.process_id);
+				if(msg.process_id == getpid()){
+					//fprintf(stderr, "USER: Quantum decisions\n");
+					quantum = rand()%2 == 0? QUANTUM : QUANTUM/2;
+					
+					int random_number = random_numb_gen(0, 4);
+				//	int burst_time;
+					int burst_rand = rand()%2 == 1? 1 : 0;
+					if(burst_rand == 1){
+						burst_time = quantum;
+					}
+					else{
+						burst_time = random_numb_gen(0, quantum);
+					}
+					
+					pcb[pcb_id].burst_time = burst_time;
 
+					int random_num = rand() % 4 + 0;
+					//fprintf(stderr, "\nUSER: Quantum decisions: %d\n", random_num);
+					
+					if(random_num == 0) {
+					   pcb[pcb_id].duration = 0;
+					   pcb[pcb_id].wait_time = 0;
+					   pcb[pcb_id].terminate = true;
 
-	//ns += rand_numb;
+					} else if(random_num == 1) {
+					   pcb[pcb_id].duration = burst_time;
+					   pcb[pcb_id].wait_time = 0;
+					   //pcb[pcb_id].terminate = false;
 
-	//fix_time();
-	//fprintf(stderr, "USER: user is activated : pid: (%d)\n", getpid());
-//	fprintf(stderr, "PCB duration: %d\n", pcb[pcb_id].duration);
-    int i;
-	if(pcb[pcb_id].duration != 0){
-		while (!quit) {
-			//Set up child max duration
-			sem_clock_lock();       //Lock Sem simulated clock
-			sec = clock_point->sec; //Copy sec to local
-			ns = clock_point->ns;   //Copy ns to local
-			sem_clock_release();      //Release Sem
-			start_time = sec * 1000000000 + ns;
-			//fprintf(stderr, "PCB duration: %d\n", pcb[pcb_id].id);
-			// Decide if full quantum or half
-			quantum = rand()%2 == 0? pcb[pcb_id].duration : random_numb_gen(0, pcb[pcb_id].duration/2);
-			total_quantum_in_millis += convert_to_millis(quantum);
- /*  it updates its process control block by adding to the accumulated CPU time. It joins the ready queue at that
-125 point and sends a signal on a semaphore so that oss can schedule another process.?????????????????? */
-			//fprintf(stderr, "USER: Curretn total quatum %d\n", total_quantum_in_millis);
-			if(total_quantum_in_millis < 50){
-				if(pcb[pcb_id].is_scheduled == 1){
-					fprintf(stderr, "\n!!!!!!!!USER: I got scheduled: PID (%d)\n", getpid());
-					sem_print_lock();
-					while((quantum + start_time) < convert_to_ns(clock_point->sec) + clock_point->ns);
-					//Message msg;
-					msg->mtype = 1;
-					msg->process_id = child_id;
-					msg->done_flag = 1;
-					msg->id = pcb_id;
-					msg->sec = clock_point->sec;
-					msg->ns = clock_point->ns;
-					msg->total_duration = total_quantum_in_millis;
-					//msgsnd(msg_queue_id, &msg, sizeof(Message)-sizeof(long), 0);
-					// Send a message.
-					msgsnd(msg_queue_id, &msg, sizeof(Message), 0);
-					//printf("%d, %d, %s, %d\n", msqid, sbuf.mtype, sbuf.mtext, buf_length);
-					//	perror("msgsnd");
-					//}
-					//else
-					//	printf("\nMessage Sent\n");
+					} else if(random_num == 2) {
+					   int seconds = random_numb_gen(0, 5);
+					//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
+					   int milli_sec = random_numb_gen(0, 1000) * 1000000;
+					   int total_nanos = seconds * 1000000000 + milli_sec;
+						
 
-					sem_print_release();
+						//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
+					   pcb[pcb_id].wait_time = milli_sec + total_nanos;
+					   pcb[pcb_id].duration = burst_time;
+					  // pcb[pcb_id].terminate = false;
+
+					} else if(random_number == 3) {
+					   double p_value = random_numb_gen(1, 99) / 100;
+					   pcb[pcb_id].duration = p_value * burst_time;
+					   pcb[pcb_id].wait_time = 0;
+					 //  pcb[pcb_id].terminate = false;
+					}	
+					
+					msg.mtype = 1;
+					msg.process_id = child_id;
+					msg.id = pcb_id;
+					msg.sec = clock_point->sec;
+					msg.ns = clock_point->ns;
+					//fprintf(stderr, "USER: Sending message back\n");
+					msgsnd(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), 0);
+					break;
 				}
 			}
-			else{
-				int decide = -1;
-				decide = rand()%2 == 1? 1 : 0;
-				if(decide){
-					quit = false;
-				}
-				else{
-					total_quantum_in_millis -= 50;
-				}
-			}	
+		}
+		
+		unsigned int beginning = convert_to_ns(clock_point->sec) + clock_point->ns;
+		while(1)
+		{
+			pcb[pcb_id].duration -= convert_to_ns(clock_point->sec) + clock_point->ns - beginning;
+
+			if(pcb[pcb_id].duration <= 0)
+			{
+				//Send a message to master how long I ran for
+				msg.mtype = 1;
+				msg.id = pcb_id;
+				msg.process_id = child_id;
+				msg.ns = pcb[pcb_id].burst_time;
+				//fprintf(stderr, "\n!!!USER: Sending message back after duration\n");
+				msgsnd(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), 0);
+				break;
+			}
+		}
+		
+		if(pcb[pcb_id].terminate){
+			msg.done_flag = 0;
+		}
+		else{
+			msg.done_flag = 1;
+		}
+		
+		msg.mtype = 1;
+		msg.process_id = child_id;
+		msg.id = pcb_id;
+		msg.burst_time = pcb[pcb_id].burst_time;
+		msg.duration = pcb[pcb_id].duration;
+		msg.wait_time = pcb[pcb_id].wait_time + convert_to_ns(clock_point->sec) + clock_point->ns - beginning;
+		
+		msgsnd(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), 0);
+
+		msg.process_id = -1;
+		if(pcb[pcb_id].terminate){
+			fprintf(stderr, "\n\nUSER: termination\n");
+			break;
 		}
 	}
-	//detach memory
-	//shmdt(shmMsg);
+	fprintf(stderr, "USER: exiting\n");
 	shmdt(clock_point);
 	shmdt(pcb);
-	free(user_process);
-	free(msg);
+//	free(user_process);
+	//free(msg);
 
 	return 0;
 }

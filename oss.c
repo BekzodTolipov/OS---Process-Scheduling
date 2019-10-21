@@ -33,15 +33,16 @@
 #include <sys/wait.h>
 #include <sys/msg.h>
 #include <errno.h>
+#include <stdint.h>
 #include "shared_mem.h"
 
 //Prototypes
-QUE* queue_generator(int numb_kids);
+QUE* queue_generator();
 int random_numb_gen(int min, int max);
-US_P _init_user_process(int index, pid_t child_id);
-PCB copy_user_to_pcb(PCB pcb, US_P user_process, int id);
-void push_to_queue(struct queue* queue, PCB pcb);
-void pop_from_queue(QUE* queue);
+US_P *_init_user_process(int index, pid_t child_id);
+void copy_user_to_pcb(PCB *pcb, US_P *user_process);
+void push_to_queue(struct queue* queue, int id);
+struct QNode * pop_from_queue(QUE* queue);
 void fix_time();
 void sem_clock_lock();
 void sem_clock_release();
@@ -51,6 +52,7 @@ static int setuptimer(int s);
 static int setupinterrupt();
 static void myhandler(int s);
 void fix_time();
+static void terminator();
 //int toint(char str[]);
 
 
@@ -62,9 +64,9 @@ void fix_time();
 
 PCB* pcb;
 simulated_clock* sim_clock;
-QUE* low_queue;
-QUE* med_queue;
-QUE* high_queue;
+static struct queue* low_queue;
+static struct queue* med_queue;
+static struct queue* high_queue;
 int msg_queue_id;
 int *check_permission;
 simulated_clock* clock_point;
@@ -78,8 +80,9 @@ int sem_id;
 struct sembuf sem_op;
 int clock_shmid;
 long int total_ns;
-Message msg;
+static Message msg;
 //char *shmMsg;
+static unsigned char bit_map[3];
 
 
 #define MAXCHAR 1024
@@ -181,7 +184,7 @@ int main(int argc, char **argv){
 	clock_point->ns = 0;
 
 	//Set up pcb starter
-    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 18, IPC_CREAT | 0666)) < 0) {
+    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 3, IPC_CREAT | 0666)) < 0) {
         fprintf(stderr, "shmat failed on shared message");
 		return 1;
     }
@@ -189,215 +192,364 @@ int main(int argc, char **argv){
     pcb = shmat(pcb_shmid, NULL, 0);
 
 	//Set up queues high, medium, low
-	high_queue = queue_generator(18);
-	med_queue = queue_generator(18);
-	low_queue = queue_generator(18);
+	high_queue = queue_generator();
+	med_queue = queue_generator();
+	low_queue = queue_generator();
 
 	//int counter = 0;
 	int spawning = 0;
 	int prev_clock = 0;
 	int queue_lvl = -1;
-	i = 0;
+	int id = 0;
 	int start_ns = 0;
 	int which_queue = 0;
 	int total_cpu_spent_user = 0;
 	int total_cpu_spent_queue = 0;
 	long int start_time = 0;
 	char index_str[MAXCHAR];
+	int total_kids = 0;
+	float med_queue_wait_time = 0.0;
+	float low_queue_wait_time = 0.0;
+	bool bit_accessable;
 	while(!quit) {
-		if((i%18) == 0){
-			i = 0;
+		if((id%18) == 0){
+			id = 0;
+		}
+//Is this spot in the bit map open?
+		bit_accessable = false;
+		int count = 0;
+		while(1){
+			id = (id + 1) % 3;
+			uint32_t bit = bit_map[id / 8] & (1 << (id % 8));
+			if(bit == 0)
+			{
+				bit_accessable = true;
+				break;
+			}
+			else
+			{
+				bit_accessable = false;
+			}
+
+			if(count >= 3 - 1)
+			{
+				fprintf(stderr, "OSS: bitmap is full\n");
+				fprintf(fptr, "OSS: bitmap is full\n");
+				fflush(fptr);
+				break;
+			}
+			count++;
 		}
 		start_time = convert_to_ns(clock_point->sec) + clock_point->ns;
-		//fprintf(stderr, "BBBITTT vector before creating: %d\n\n", bit_vector[i]);
-        if(bit_vector[i] == 0) {
-            spawning = random_numb_gen(0, 2);
-            if((clock_point->sec - prev_clock) >= spawning) {
-                child_id = fork();
-				bit_vector[i] = 1;
-				//fprintf(stderr, "BBBITTTT vector after creating %d\n\n", bit_vector[i]);
-                if(child_id == 0) {
-                    US_P user_process = _init_user_process(i, getpid());
+		if(total_kids < 100){
+			if(bit_accessable) {
+				//spawning = random_numb_gen(0, 2);
+				//if((clock_point->sec - prev_clock) >= spawning) {
+					child_id = fork();
+					//bit_vector[id] = 1;
 
-                    pcb[i] = copy_user_to_pcb(pcb[i], user_process, i);
+					if(child_id == 0) {
+						//US_P user_process = _init_user_process(id, getpid());
 
+						//pcb[id] = copy_user_to_pcb(pcb[id], user_process, id);
 
-                    fprintf(stderr, "\nOSS: Generating process with PID %d and putting it in queue %d at time %d.%d\n", pcb[i].process_id, pcb[i].priority, clock_point->sec, clock_point->ns);
+						//fprintf(stderr, "\nOSS: Generating process with PID %d and putting it in queue %d at time %d.%d\n", pcb[id].process_id, pcb[id].priority, clock_point->sec, clock_point->ns);
 
-                    //if(pcb[i].priority == 0) {
-					//	if(high_queue->size < high_queue->max_kids){
-		//	void push_to_queue(struct queue* queue, pcb pcb) {
-
-					push_to_queue(high_queue, pcb[i]);
-					pcb[i].is_scheduled = 1;
-					//index_str = toint(i);
-					sprintf(index_str, "%d", i);
-					execl("./child", "./child", index_str, NULL);
-					//	} 
-					//	else 
-					//	{
-					//		fprintf(stderr, "OSS: HIGH QUEUE IS FULL");
-					//	}
-				//	} 
-				//	else if(pcb.priority[i] == 1) {
-				//		if(med_queue->size < med_queue->max_kids){
-				//			push_to_queue(low_queue, pcb[i]);
-				//		} 
-				//		else 
-				//		{
-				//			fprintf(stderr, "OSS: MEDIUM QUEUE IS FULL");
-				//		}
-				//	}
-				//	else{
-				//		if(low_queue->size < low_queue->max_kids){
-				//			push_to_queue(low_queue, pcb[i]);
-				//		} 
-				//		else 
-				//		{
-				//			fprintf(stderr, "OSS: LOW QUEUE IS FULL");
-				//		}
-				//	}
-					//push_to_queue_or_not(pcb[i]);
-
-
-                } 
-				else if (child_id < 0) {
-                    perror("ERROR: Fork() failed\n");
-                    return 1;
-                }
-            }
-
-			int stat;
-			pid_t remove_pid = waitpid(-1, &stat, WNOHANG);	// Non block wait for parent
-	//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
-		// If somebody died then barry them underground
-		// and remove them from history
-			if(remove_pid > 0){
-				fprintf(stderr, "\n\nOSS: deleting child from array\n\n");
-				int pos;
-				for(pos=0; pos<18;pos++){
-					if(pcb[pos].process_id == remove_pid){
-						bit_vector[pcb[pos].id] = 0;
+						//push_to_queue(high_queue, pcb[id]);
+						//pcb[id].is_scheduled = 1;
+						//sprintf(index_str, "%d", i);
+						execl("./child", "./child", index_str, NULL);
+					} 
+					else if (child_id < 0) {
+						terminator();
+						break;
 					}
-				}
+					else{
+						total_kids++;
+						bit_map[id / 8] |= (1 << (id % 8));
+					//	fprintf(stderr, "KIDS: %d", total_kids);
+						US_P* user_process = _init_user_process(id, child_id);
+
+						copy_user_to_pcb(&pcb[id], user_process);
+
+						fprintf(stderr, "\nOSS: Generating process with PID %d and putting it in queue %d at time %d.%d\n", pcb[id].process_id, pcb[id].priority, clock_point->sec, clock_point->ns);
+						
+						fprintf(fptr, "\nOSS: Generating process with PID %d and putting it in queue %d at time %d.%d\n", pcb[id].process_id, pcb[id].priority, clock_point->sec, clock_point->ns);
+						fflush(fptr);
+
+						push_to_queue(high_queue, id);
+						//Set up priority
+						pcb[id].priority = 0;
+					}
+			//	}
 			}
+		}
+		else{ //Terminate if reached 100 kids
+			fprintf(stderr, "FINISH: Reached max 100 kids\n");
+			terminator();
+			break;
+			
+		}
+		
+		struct QNode next_working_process;
+		if(which_queue == 0){
+			next_working_process.next = high_queue->front;
+			//fprintf(stderr, "OSS: which queue is 0\nNext queue: %d",(high_queue->front != NULL) );
+		}
+		else if(which_queue == 1){
+			next_working_process.next = med_queue->front;
+		}
+		else{
+			next_working_process.next = low_queue->front;
+		}
 
-            //counter++;
+		int total_processes_in_queue = 0;
+		float total_wait_time_in_queue = 0.0;
+		struct queue *temp_queue = queue_generator();
+		int working_process_id = -1;
+		
+		while(next_working_process.next != NULL){
+			//fprintf(stderr, "OSS: next_working_process is not null\n");
+			total_processes_in_queue++;
+			
+			//--------------------------------//
+			//Increment Clock
+			sem_clock_lock();
+			//increment seconds
+			clock_point->ns += 1000;
+			fix_time();
+			// Release the critical section
+			sem_clock_release();
+			//--------------------------------//
+			
+			working_process_id = next_working_process.next->id;
+			msg.mtype = pcb[working_process_id].process_id;
+			msg.id = working_process_id;
+			msg.process_id = pcb[working_process_id].process_id;
+			msg.priority = which_queue;
+			pcb[working_process_id].priority = which_queue;
+			//Send message to user.c
+			msgsnd(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), 0);
+			fprintf(stderr, "OSS: Signaling process with PID (%d) from queue -%d- to dispatch\n", msg.process_id, which_queue);
+			
+			fprintf(fptr, "OSS: Signaling process with PID (%d) from queue -%d- to dispatch\n", msg.process_id, which_queue);
+			fflush(fptr);
+			//--------------------------------//
+			//Increment Clock
+			sem_clock_lock();
+			//increment seconds
 
-    //int progress;
-			//sem_clock_lock;
-            prev_clock = clock_point->sec;
-			//sem_clock_release;
+			clock_point->ns += 1000;
+			fix_time();
+			// Release the critical section
+			sem_clock_release();
+			//--------------------------------//
+			
+			msgrcv(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), 1, 0);
+			
+			fprintf(stderr, "OSS: Dispatching process with PID (%d) from queue -%d- at time %d.%d\n", msg.process_id, which_queue, msg.sec, msg.ns);
 
-			total_ns = clock_point->ns - start_ns;
-			//sem_clock_release;
-            fprintf(stderr, "OSS: total time this dispatch was %li nanoseconds\n", total_ns);
-    //int progress;
-			//msg msg;
-			static int messageSize = sizeof(Message);// - sizeof(long);
-			/* receive a message */
-			msgrcv(msg_queue_id, &msg, messageSize, 1, IPC_NOWAIT); // type is 0
-			//	fprintf(stderr, "\nOSS: exit: msgrcv error, %s\n", strerror(errno)); // error
-				//return 1;
-			//}
-			if(msg.done_flag == 1){
-				pcb[msg.id].is_scheduled = 0;
-			}
-			if(errno == ENOMSG){
-				//no message yet increment clock here
-			//	errno = 0;
-			//	fprintf(stderr, "OSS: NO MSG increment time!\n");
+			fprintf(fptr, "OSS: Dispatching process with PID (%d) from queue -%d- at time %d.%d\n", msg.process_id, which_queue, msg.sec, msg.ns);
+			fflush(fptr);
+			//--------------------------------//
+			//Increment Clock
+			sem_clock_lock();
+			//increment seconds
+			clock_point->ns += 1000;
+			fix_time();
+			// Release the critical section
+			sem_clock_release();
+			//--------------------------------//
+			//prev_clock = clock_point->sec;
+			total_ns = convert_to_ns(clock_point->sec) + clock_point->ns - convert_to_ns(msg.sec) + msg.ns;
+			fprintf(stderr, "OSS: total time this dispatch was %li nanoseconds\n", total_ns);
+			fprintf(fptr, "OSS: total time this dispatch was %li nanoseconds\n", total_ns);
+			fflush(fptr);
+
+			
+			while(1){	//Increment clock while process in critical section
+				
+				//--------------------------------//
+				//Increment Clock
 				sem_clock_lock();
-
 				//increment seconds
 				clock_point->ns += 1000;
 				fix_time();
 				// Release the critical section
 				sem_clock_release();
-				//increment clock
+				//--------------------------------//
+				
+				int left_critical_section = msgrcv(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), 1, IPC_NOWAIT);
+				if(left_critical_section != -1){
+					fprintf(stderr, "OSS: Receiving that process with PID (%d) ran for %li nanoseconds\n", msg.process_id, (convert_to_ns(msg.sec) + msg.ns));
+					fprintf(fptr, "OSS: Receiving that process with PID (%d) ran for %li nanoseconds\n", msg.process_id, (convert_to_ns(msg.sec) + msg.ns));
+					fflush(fptr);
+					break;
+				}
 			}
-			//msgrcv(msg_queue_id, &msg, messageSize, msg_queue_key, 0);
+			
+			//--------------------------------//
+			//Increment Clock
+			sem_clock_lock();
+			//increment seconds
+			clock_point->ns += 1000;
+			fix_time();
+			// Release the critical section
+			sem_clock_release();
+			//--------------------------------//
+			
+			//Blocked wait for message from user.c
+			msgrcv(msg_queue_id, &msg, (sizeof(Message) - sizeof(long)), 1, 0);
+			if(msg.done_flag == 0){
+				fprintf(stderr, "OSS: Process with PID (%d) has finish running at my time %d.%d\n", msg.process_id, clock_point->sec, clock_point->ns);
+				fprintf(fptr, "OSS: Process with PID (%d) has finish running at my time %d.%d\n", msg.process_id, clock_point->sec, clock_point->ns);
+				fflush(fptr);
+				total_wait_time_in_queue += msg.wait_time;
+			}
 			else{
-				fprintf(stderr, "OSS: received message!!\n");
-				total_cpu_spent_queue -= start_time - msg.duration;
-				if(which_queue == 0){
-					total_cpu_spent_user += msg.duration;
-					if(total_cpu_spent_user > thresh_hold_user){
-						pop_from_queue(high_queue);
-						pcb[msg.process_id].priority = 1;
-						total_cpu_spent_user = 0;
+				if(which_queue == 0)
+				{
+					if(msg.wait_time > (ALPHA * med_queue_wait_time))
+					{
+						fprintf(stderr, "OSS: Putting process with PID (%d) to queue -1-\n", msg.process_id);
+						fprintf(fptr, "OSS: Putting process with PID (%d) to queue -1-\n", msg.process_id);
+						fflush(fptr);
+						push_to_queue(med_queue, working_process_id);
+						pcb[working_process_id].priority = 1;
 					}
-					if(total_cpu_spent_queue > thresh_hold_oss){
-						which_queue = 1;
+					else
+					{
+						fprintf(stderr, "OSS: Not using its entire time quantum. Putting process with PID (%d) to queue -0-\n", msg.process_id);
+						fprintf(fptr, "OSS: Not using its entire time quantum. Putting process with PID (%d) to queue -0-\n", msg.process_id);
+						fflush(fptr);
+
+
+						push_to_queue(temp_queue, working_process_id);
+						pcb[working_process_id].priority = 0;
 					}
 				}
-				else if(which_queue == 1){
-					total_cpu_spent_user += msg.duration;
-					if(total_cpu_spent_user > thresh_hold_user){
-						pop_from_queue(med_queue);
-						pcb[msg.process_id].priority = 2;
-						total_cpu_spent_user = 0;
-	//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
-					}
-					if(total_cpu_spent_queue > thresh_hold_oss){
-						which_queue = 2;
-					}
+				else if(which_queue == 1)
+				{
+					if(msg.wait_time > (BETTA * low_queue_wait_time))
+					{
+						fprintf(stderr, "OSS: Putting process with PID (%d) to queue -2-\n", msg.process_id);
+						fprintf(fptr, "OSS: Putting process with PID (%d) to queue -2-\n", msg.process_id);
+						fflush(fptr);
 
+						push_to_queue(low_queue, working_process_id);
+						pcb[working_process_id].priority = 2;
+					}
+					else
+					{
+						fprintf(stderr, "OSS: Not using its entire time quantum. Putting process with PID (%d) to queue -1-\n", msg.process_id);
+						fprintf(fptr, "OSS: Not using its entire time quantum. Putting process with PID (%d) to queue -1-\n", msg.process_id);
+						fflush(fptr);
+
+						push_to_queue(temp_queue, working_process_id);
+						pcb[working_process_id].priority = 1;
+					}
 				}
 				else{
-					total_cpu_spent_user += msg.duration;
-					if(total_cpu_spent_user > thresh_hold_user){
-						pop_from_queue(low_queue);
-						pcb[msg.process_id].priority = 0;
-						total_cpu_spent_user = 0;
-					}
-					if(total_cpu_spent_queue > thresh_hold_oss){
-						which_queue = 0;
-					}
+					fprintf(stderr, "OSS: Keeping process with PID (%d) in queue -2-\n", msg.process_id);
+					fprintf(fptr, "OSS: Keeping process with PID (%d) in queue -2-\n", msg.process_id);
+					fflush(fptr);
 
+					push_to_queue(temp_queue, working_process_id);
+					pcb[working_process_id].priority = 2;
 				}
-				//advanceSharedMemoryClock();
-				sem_clock_lock();
 
-				//increment seconds
-				clock_point->ns += 1000;
-				fix_time();
-				// Release the critical section
-				sem_clock_release();
+				total_wait_time_in_queue += msg.wait_time;
 			}
-			i++;
+			
+			//Set up pointer to next process if exists
+			if(next_working_process.next->next != NULL){
+				next_working_process.next = next_working_process.next->next;
+			}
+			else{
+				next_working_process.next = NULL;
+			}
 		}
-		//else{
-		//	fprintf(stderr, "\nStart to terminate everything current i: %d\n", i);
-		//	for(i=0; i<20; i++){
-		//		if(pcb[i].process_id != 0){
-		//			if(kill(pcb[i].process_id, 0) == 0){
-		//				if(kill(pcb[i].process_id, SIGTERM) != 0){
-		//					perror("Child can't be terminated for unkown reason\n");
-		//				}
-		//			}
-		//		}
-		//	}
-
-		//	for(i=0;i<20;i++){
-		//		if(pcb[i].process_id != 0){
-		//			waitpid(pcb[i].process_id, NULL, 0);
-		//		}
-		//	}
-		//	break;
-		//	msgctl(msg_queue_id, IPC_RMID, NULL);
-		//	shmdt(clock_point);
-		//	shmctl(clock_shmid, IPC_RMID, NULL);
-		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
-		//	shmdt(pcb);
-		//	shmctl(pcb_shmid, IPC_RMID, NULL);
-			//return 1;
-
-		//}
 		
-    }
-		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
+		//Calculate threshhold wait time for next queue
+		if(total_processes_in_queue == 0){
+			total_processes_in_queue = 1;
+		}
 
+		if(which_queue == 1){
+			med_queue_wait_time = (total_wait_time_in_queue / total_processes_in_queue);
+		}
+		else if(which_queue == 2){
+			low_queue_wait_time = (total_wait_time_in_queue / total_processes_in_queue);
+		}
+		
+		//Clear up queues as needed
+		int temp_id = 0;
+		if(which_queue == 0){
+			while(high_queue->rear != NULL)
+			{
+				pop_from_queue(high_queue);
+			}
+			while(temp_queue->rear != NULL)
+			{
+				temp_id = temp_queue->front->id;
+				push_to_queue(high_queue, temp_id);
+				pop_from_queue(temp_queue);
+			}
+		}
+		else if(which_queue == 1){
+			while(med_queue->rear != NULL)
+			{
+				pop_from_queue(med_queue);
+			}
+			while(temp_queue->rear != NULL)
+			{
+				temp_id = temp_queue->front->id;
+				push_to_queue(med_queue, temp_id);
+				pop_from_queue(temp_queue);
+			}
+		}
+		else{
+			while(low_queue->rear != NULL)
+			{
+				pop_from_queue(low_queue);
+			}
+			while(temp_queue->rear != NULL)
+			{
+				temp_id = temp_queue->front->id;
+				push_to_queue(low_queue, temp_id);
+				pop_from_queue(temp_queue);
+			}
+		}
+		free(temp_queue);
+		
+		which_queue = (which_queue + 1) % 3;
+		
+		//--------------------------------//
+		//Increment Clock
+		sem_clock_lock();
+		//increment seconds
+		clock_point->ns += 1000;
+		fix_time();
+		// Release the critical section
+		sem_clock_release();
+		//--------------------------------//
+
+		int stat;
+		pid_t remove_pid = waitpid(-1, &stat, WNOHANG);	// Non block wait for parent
+		// If somebody died then barry them underground
+		// and remove them from history
+		if(remove_pid > 0){
+			//fprintf(stderr, "\n\nOSS: deleting child from array\n\n");
+			int pos;
+			for(pos=0; pos<18;pos++){
+				if(pcb[pos].process_id == remove_pid){
+					bit_map[pcb[pos].id / 8] &= ~(1 << (pcb[pos].id % 8));
+				}
+			}
+		}
+	//	prev_clock = clock_point->sec;
+	}
+	
 	msgctl(msg_queue_id, IPC_RMID, NULL);
 	shmdt(clock_point);
 	shmctl(clock_shmid, IPC_RMID, NULL);
@@ -412,17 +564,14 @@ int main(int argc, char **argv){
 	return 0;
 }
 
-struct queue* queue_generator(int numb_kids){
+QUE* queue_generator(){
 	
-	struct queue* queue = (struct queue*) malloc(sizeof(struct queue));
+	QUE* starter = (struct queue*) malloc(sizeof(struct queue));
 
-    queue->max_kids = numb_kids;
-    queue->beginning = 0;
-	queue->size = 0;
-    queue->end = numb_kids - 1;
-    queue->array = (PCB*)malloc(queue->max_kids * sizeof(PCB));
+    starter->front = NULL;
+	starter->rear = NULL;
    
-	return queue;
+	return starter;
 
 }
 
@@ -432,62 +581,43 @@ int random_numb_gen(int min, int max) {
 
 }
 
-US_P _init_user_process(int index, pid_t child_id){
+US_P *_init_user_process(int index, pid_t child_id){
 
 	US_P* user_process = (struct user_process*) malloc(sizeof(struct user_process));
 	user_process->id = index;
 	user_process->process_id = child_id;
 	user_process->priority = 0;
-
-	int random_number = random_numb_gen(0, 3);
-//	fprintf(stderr, "OSS: RANDOM NUMBER: %d\n", random_number);
-   if(random_number == 0) {
-       user_process->duration = 0;
-       user_process->wait_time = 0;
-
-   } else if(random_number == 1) {
-       user_process->duration = QUANTUM;
-       user_process->wait_time = 0;
-
-   } else if(random_number == 2) {
-       int seconds = random_numb_gen(0, 5);
-	//	fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
-       int milli_sec = random_numb_gen(0, 1000) * 1000000;
-       int total_nanos = seconds * 1000000000 + milli_sec;
-		
-
-		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
-       user_process->wait_time = milli_sec + total_nanos;
-       user_process->duration = QUANTUM;
-
-   } else if(random_number == 3) {
-       double p_value = random_numb_gen(1, 99) / 100;
-       user_process->duration = p_value * QUANTUM;
-       user_process->wait_time = 0;
-   }
-
-    return *user_process;
+	
+	return user_process;
 }
 
-PCB copy_user_to_pcb(PCB pcb, US_P user_process, int id){
+void copy_user_to_pcb(PCB *pcb, US_P *user_process){
 
-	pcb.id = id;
-    pcb.process_id = user_process.process_id;
-	pcb.priority = user_process.priority;
-	pcb.burst_time = user_process.burst_time;
-    pcb.duration = user_process.duration;	
-	pcb.wait_time = user_process.wait_time;
+	pcb->id = user_process->id;
+    pcb->process_id = user_process->process_id;
+	pcb->priority = user_process->priority;
 
-    return pcb;
+    //return pcb;
 }
 
-void push_to_queue(struct queue* q, PCB pcb) {
-		//fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
-    if(q->size < q->max_kids) {
-        q->end = (q->end+1)%q->max_kids;
-        q->array[q->end] = pcb;
-        q->size++;
-    }
+void push_to_queue(struct queue* q, int id) {
+	q_node *new_node = (struct QNode *)malloc(sizeof(struct QNode));
+	new_node->id = id;
+	new_node->next = NULL;
+	//fprintf(stderr, "OSS: Created new node with id: %d", new_node->id);
+	//q_node *temp_queue = new_node;
+	
+	//If queue is empty, then new node is front and rear both
+	if(q->rear == NULL)
+	{
+		q->front = q->rear = new_node;
+		//fprintf(stderr, "OSS: Added new node to front\n");
+		return;
+	}
+
+	//Add the new node at the end of queue and change rear 
+	q->rear->next = new_node;
+	q->rear = new_node;
 }
 
 /***********************************************
@@ -532,13 +662,24 @@ long int convert_to_ns(int q){
 
 }
 
-void pop_from_queue(struct queue* q) {
-   // PCB* item = NULL;
+q_node *pop_from_queue(QUE* q) {
+   
+   if(q->front == NULL) 
+	{
+		return NULL;
+	}
 
-   // *item = queue->array[queue->front];
-    q->beginning = (q->beginning + 1)%q->max_kids;
-    q->size = q->size - 1;
-    //return *item;
+	q_node *temp = q->front;
+	free(temp);
+	
+	q->front = q->front->next;
+
+	if (q->front == NULL)
+	{
+		q->rear = NULL;
+	}
+
+	return temp;
 
 }
 
@@ -587,6 +728,20 @@ static void myhandler(int s){
         }
     }
 
+	msgctl(msg_queue_id, IPC_RMID, NULL);
+	shmdt(clock_point);
+    shmctl(clock_shmid, IPC_RMID, NULL);
+    shmdt(pcb);
+    shmctl(pcb_shmid, IPC_RMID, NULL);
+    shmctl(clock_shmid, IPC_RMID, NULL);
+    shmctl(pcb_shmid, IPC_RMID, NULL);
+    //shmctl(shmid_3, IPC_RMID, NULL);
+     //  fprintf(stderr, "PCB duration: %d\n", pcb[getpid()].id);
+    semctl(sem_id, 0, IPC_RMID);
+    semctl(sem_id, 1, IPC_RMID);
+    abort();
+
+
 //	for(i=0; i<20; i++){
 //		if(child_arr[i] != 0){
 //			if(kill(child_arr[i], 0) == 0){
@@ -603,6 +758,30 @@ static void myhandler(int s){
 //		}
 //	}
 
-	quit = true;
+	//quit = true;
 }
 
+/************************
+* Set up terminator *
+************************/
+static void terminator(){
+	fprintf(stderr, "\n!!!Termination begin!!!\n");
+	int i;
+	for(i=0; i<20; i++){
+        if(pcb[i].process_id != 0){
+            if(kill(pcb[i].process_id, 0) == 0){
+                if(kill(pcb[i].process_id, SIGTERM) != 0){
+                    perror("Child can't be terminated for unkown reason\n");
+                }
+            }
+        }
+    }
+
+    for(i=0;i<20;i++){
+		if(pcb[i].process_id != 0){
+            waitpid(pcb[i].process_id, NULL, 0);
+        }
+    }
+
+	quit = true;
+}
