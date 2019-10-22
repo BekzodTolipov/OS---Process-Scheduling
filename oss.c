@@ -159,7 +159,7 @@ int main(int argc, char **argv){
 	clock_point->ns = 0;
 
 	//Set up pcb starter
-    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 3, IPC_CREAT | 0666)) < 0) {
+    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * MAX_PROCESSES, IPC_CREAT | 0666)) < 0) {
         fprintf(stderr, "shmat failed on shared message");
 		return 1;
     }
@@ -192,18 +192,15 @@ int main(int argc, char **argv){
 		while(1){
 			id = (id + 1) % 3;
 			uint32_t bit = bit_map[id / 8] & (1 << (id % 8));
-			if(bit == 0)
-			{
+			if(bit == 0){
 				bit_accessable = true;
 				break;
 			}
-			else
-			{
+			else{
 				bit_accessable = false;
 			}
 
-			if(count >= 3 - 1)
-			{
+			if(count >= 3 - 1){
 				fprintf(stderr, "OSS: bitmap is full\n");
 				fprintf(fptr, "OSS: bitmap is full\n");
 				fflush(fptr);
@@ -524,6 +521,7 @@ int main(int argc, char **argv){
     semctl(sem_id, 1, IPC_RMID);
 	return 0;
 }
+
 /*******************************************************
 * Function is designed to convert string to an integer *
 *******************************************************/
@@ -539,6 +537,7 @@ int toint(char str[])
 
    return num;
 }
+
 /*****************************************************
 * Function to set up queue as front and rear to null *
 *****************************************************/

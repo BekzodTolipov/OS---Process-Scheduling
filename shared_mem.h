@@ -8,6 +8,7 @@
 #define QUANTUM 50000
 #define ALPHA 2.2
 #define BETTA 2.8
+#define MAX_PROCESSES 18
 
 typedef struct Clock {
 

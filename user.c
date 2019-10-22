@@ -29,7 +29,6 @@
 void fix_time();
 static int setupinterrupt();
 static void myhandler(int s);
-void strfcat(char *fmt, ...);
 void sem_clock_lock();
 void sem_clock_release();
 void sem_print_lock();
@@ -93,7 +92,7 @@ int main(int argc, char *argv[])
 	// msgget return id
 	msg_queue_id = msgget(msg_queue_key, 0666);
 	//Set up pcb starter
-    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * 3, IPC_CREAT | 0644)) < 0) {
+    if ((pcb_shmid = shmget(pcb_key, sizeof(struct process_control_block) * MAX_PROCESSES, IPC_CREAT | 0644)) < 0) {
         fprintf(stderr, "EEROR: USER: shmat failed on shared pcb");
 		return 1;
     }
@@ -126,6 +125,7 @@ int main(int argc, char *argv[])
 				if(msg.process_id == getpid()){
 					//Decide what quantum you will run
 					quantum = rand()%2 == 0? QUANTUM : QUANTUM/2;
+					int random_number = random_numb_gen(0, 4);
 					int burst_rand = rand()%2 == 1? 1 : 0;
 					//Decide process's burst time
 					if(burst_rand == 1){
@@ -249,19 +249,6 @@ static void myhandler(int s){
 	shmdt(pcb);
 	exit(1);
 }
-
-/**************************************
-* Copy child message to shared memory *
-**************************************/
-//void strfcat(char *fmt, ...){
-//	va_list args;
-	
-//	va_start(args, fmt);
-//	vsprintf(buffer, fmt, args);
-//	va_end(args);
-
-//	strcpy(shmMsg, buffer);
-//}
 
 /***********************
 * Lock clock semaphore *
