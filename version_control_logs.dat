@@ -1,0 +1,56 @@
+commit 0f22cf52477b0c441e6b180b89d3e1542ee17286
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Tue Oct 22 15:33:13 2019 -0500
+
+    Finished everything README left only
+
+commit 40980eb3edfb3fd8709b86dd7d95828285bec181
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Sun Oct 20 20:56:29 2019 -0500
+
+    Finilized and everything works
+
+commit 8c7bd139b2f225324c7b11f319d4c184af6dac48
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Sun Oct 13 18:57:02 2019 -0500
+
+    Message queue not working
+
+commit 4bcd287b1277922ea14abef15ecc3d2938bc274f
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Sun Oct 13 18:10:53 2019 -0500
+
+    Loading before it alters
+
+commit c6518c056d74d7b330bcd5a975d28274ad30b7c6
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Sun Oct 13 15:07:14 2019 -0500
+
+    Strange things happening dont understand what
+
+commit 30fe46c4218e8806da8446e680d679d80db4ba57
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Fri Oct 11 21:06:27 2019 -0500
+
+    Partially works, need to figure out queueing system which I discussed with Prof
+
+commit c7afdabc4561f2b5666281e7d2ba251c40079b3a
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Fri Oct 11 11:52:22 2019 -0500
+
+    made some changes in user.c to show professor and ask questions
+
+commit e9c97aac2e04929d5eb10a674bfb77381cbe5191
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Fri Oct 11 10:55:35 2019 -0500
+
+    copied user.c from assignment-3
+
+commit a75b7bd46678c6685c04963c0aa3f7cbbeb84f05
+Author: BekzodTolipov <btolipov110@gmail.com>
+Date:   Thu Oct 10 22:46:19 2019 -0500
+
+    can not figure out how to use queue
+
+commit 84508248ab707b005a23ef647ea1b492967af3a2
+
