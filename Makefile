@@ -9,6 +9,7 @@ MASTER_EXE = oss
 CHILD_EXE = child
 
 CFLAGS = -g -Wall
+MATH = -lm
 
 HEADER_FILE = shared_mem.h
 
@@ -16,10 +17,10 @@ HEADER_FILE = shared_mem.h
 all: $(CHILD_EXE) $(MASTER_EXE)
 
 $(CHILD_EXE): $(CHILD_OBJ)
-	$(CC) $(CHILD_OBJ) -o $(CHILD_EXE)
+	$(CC) $(CHILD_OBJ) -o $(CHILD_EXE) $(MATH)
 
 $(MASTER_EXE): $(MASTER_OBJ)
-	$(CC) $(MASTER_OBJ) -o $(MASTER_EXE)
+	$(CC) $(MASTER_OBJ) -o $(MASTER_EXE) $(MATH)
 
 %.o: %.c $(HEADER_FILE)
 	$(CC) -c $(CFLAGS) $*.c -o $*.o
@@ -27,4 +28,4 @@ $(MASTER_EXE): $(MASTER_OBJ)
 .PHONY: clean
 
 clean:
-	rm *.o *.out $(CHILD_EXE) $(MASTER_EXE)
+	rm *.o $(CHILD_EXE) $(MASTER_EXE)
