@@ -1,3 +1,14 @@
+# Process Scheduling
+
+	To run the program:
+
+	1. Type: "make"
+	2. Run executable: "./oss"
+	3. For help text type: ./oss -h
+	4. Extra options:
+		./oss -l : specifies the log file (default is log.dat).
+		./oss -t : specifies the timer taht alarm will go off.
+
 In this project, you will simulate the process scheduling part of an operating system. You will implement time-based scheduling,
 ignoring almost every other aspect of the OS. In this project we will be using message queues for synchronization.
 *NOTE: this is simulation, there will be no "real-time waiting". Time result WILL BE inconsistence or divergence.
@@ -25,12 +36,3 @@ Expected output will as following:
 	OSS: Dispatching process with PID 1 from queue 1 at time 0:5402505,
 	OSS: total time spent in dispatch was 7000 nanoseconds
 	etc...
-	
-To run the program:
-
-1. Type: "make"
-2. Run executable: "./oss"
-3. For help text type: ./oss -h
-4. Extra options:
-	./oss -l : specifies the log file (default is log.dat).
-	./oss -t : specifies the timer taht alarm will go off.
