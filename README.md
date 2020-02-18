@@ -9,6 +9,7 @@
 		./oss -l : specifies the log file (default is log.dat).
 		./oss -t : specifies the timer taht alarm will go off.
 
+## Description
 In this project, you will simulate the process scheduling part of an operating system. You will implement time-based scheduling,
 ignoring almost every other aspect of the OS. In this project we will be using message queues for synchronization.
 *NOTE: this is simulation, there will be no "real-time waiting". Time result WILL BE inconsistence or divergence.
@@ -21,7 +22,7 @@ The randomness will be simulated by a logical clock that will also be updated by
 Assuming you have more than one process in your simulated system, oss will select a process to run and schedule it for execution. It
 will select the process by using a scheduling algorithm.
 
-Expected output will as following:
+***Expected output will as following:
 
 	OSS: Generating process with PID 3 and putting it in queue 1 at time 0:5000015
 	OSS: Dispatching process with PID 2 from queue 1 at time 0:5000805,
@@ -36,3 +37,4 @@ Expected output will as following:
 	OSS: Dispatching process with PID 1 from queue 1 at time 0:5402505,
 	OSS: total time spent in dispatch was 7000 nanoseconds
 	etc...
+
